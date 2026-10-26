@@ -1,10 +1,10 @@
 # Changelog
 
-## 2026-10-26
+## Unreleased
+
+## 0.2.4 - 2026-10-26
 
 - fix(reranking): honor configured exact trusted hosts
-
-## Unreleased
 
 ## 0.2.3 - 2026-10-09
 
