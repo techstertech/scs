@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.5 - 2026-10-26
+
 - fix(indexing): stop traversal at nested Git repositories
 - fix(indexing): allow independent ingestion of nested Git roots
 
