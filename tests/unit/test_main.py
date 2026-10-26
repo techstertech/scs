@@ -19,15 +19,17 @@ def test_reranker_is_disabled_without_configured_model(
     assert build_reranker(SCSSettings()) is None
 
 
-def test_reranker_uses_configured_model_and_openai_compatible_base_url() -> None:
+@pytest.mark.parametrize("host", ["localhost", "model-host.tailnet.ts.net"])
+def test_reranker_uses_configured_model_and_openai_compatible_base_url(host: str) -> None:
     reranker = build_reranker(
         SCSSettings(
             reranking_model="configured-reranker",
-            openai_compatible_base_url="http://localhost:9000/v1",
+            openai_compatible_base_url=f"http://{host}:9000/v1",
+            openai_compatible_trusted_hosts=[host],
         )
     )
 
     assert reranker is not None
     assert isinstance(reranker, OpenAICompatibleRerankingProvider)
     assert reranker.metadata.model == "configured-reranker"
-    assert reranker.endpoint == "http://localhost:9000/v1/rerank"
+    assert reranker.endpoint == f"http://{host}:9000/v1/rerank"

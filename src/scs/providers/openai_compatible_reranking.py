@@ -30,8 +30,9 @@ class OpenAICompatibleRerankingProvider:
         base_url: str,
         model_name: str,
         request: RerankerRequest | None = None,
+        trusted_hosts: Sequence[str] = (),
     ) -> None:
-        self._base_url: str = self._validated_base_url(base_url)
+        self._base_url: str = self._validated_base_url(base_url, trusted_hosts)
         self._model_name: str = model_name
         self._request: RerankerRequest | None = request
         self._unavailable_reason: str | None = None
@@ -146,8 +147,8 @@ class OpenAICompatibleRerankingProvider:
         return results
 
     @staticmethod
-    def _validated_base_url(value: str) -> str:
-        """Keep source-bearing reranking requests on the local machine."""
+    def _validated_base_url(value: str, trusted_hosts: Sequence[str]) -> str:
+        """Send source-bearing text only to loopback or an explicitly trusted host."""
 
         parsed = urlsplit(value)
         if parsed.scheme != "http" or not parsed.hostname:
@@ -157,6 +158,6 @@ class OpenAICompatibleRerankingProvider:
             is_loopback = ip_address(host).is_loopback
         except ValueError:
             is_loopback = host == "localhost"
-        if not is_loopback:
-            raise ValueError("reranking base URL must use a loopback host")
+        if not is_loopback and host not in {item.lower() for item in trusted_hosts}:
+            raise ValueError("reranking base URL must use a loopback host or an exact trusted host")
         return value.rstrip("/")
