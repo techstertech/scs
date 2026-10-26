@@ -575,3 +575,43 @@ def test_embedding_count_accumulates_across_complete_file_batches(
     assert graph.flushes == 2
     assert result.embeddings_created == len(graph.embeddings)
     assert result.embeddings_created == result.entities_created
+
+
+@pytest.mark.parametrize("parent_first", [False, True])
+def test_nested_git_roots_ingest_independently_in_either_order(
+    repository: Path, parent_first: bool,
+) -> None:
+    child = repository / "child"
+    (child / ".git").mkdir(parents=True)
+    (repository / "parent.py").write_text("def parent():\n    pass\n")
+    source = child / "nested.py"
+    source.write_text("def child():\n    pass\n")
+    graph = FakeGraph()
+    pipeline = IngestionPipeline(graph=graph, parser=FakeParser())
+    roots = [repository, child] if parent_first else [child, repository]
+
+    for root in roots:
+        assert pipeline.ingest(root).files_failed == 0
+    pipeline.ingest_files(repository, [source])
+
+    assert set(graph.get_all_ingested_files_sync(str(repository.resolve()))) == {"parent.py"}
+    assert set(graph.get_all_ingested_files_sync(str(child.resolve()))) == {"nested.py"}
+
+
+def test_reconciliation_removes_only_parent_owned_files_after_nested_git_init(repository: Path) -> None:
+    child = repository / "child"
+    child.mkdir()
+    (repository / "parent.py").write_text("def parent():\n    pass\n")
+    (child / "nested.py").write_text("def child():\n    pass\n")
+    graph = FakeGraph()
+    pipeline = IngestionPipeline(graph=graph, parser=FakeParser())
+    pipeline.ingest(repository)
+    assert "child/nested.py" in graph.get_all_ingested_files_sync(str(repository.resolve()))
+    (child / ".git").mkdir()
+    pipeline.ingest(child)
+
+    result = pipeline.ingest(repository)
+
+    assert result.files_deleted == 1
+    assert set(graph.get_all_ingested_files_sync(str(repository.resolve()))) == {"parent.py"}
+    assert set(graph.get_all_ingested_files_sync(str(child.resolve()))) == {"nested.py"}

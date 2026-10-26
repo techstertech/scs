@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -380,3 +383,86 @@ def test_single_file_keeps_directory_alias_under_a_symlinked_checkout(
         assert entry is not None
         assert entry.rel_path == "alias/file.md"
         assert entry.abs_path == repo / "alias" / "file.md"
+
+
+@pytest.mark.parametrize("marker_is_file", [False, True])
+@pytest.mark.parametrize("mode", ["git", "fallback", "library"])
+def test_discovery_stops_at_nested_git_roots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, marker_is_file: bool, mode: str,
+) -> None:
+    repo = tmp_path / "repo"
+    parent_source = repo / "src" / "parent.py"
+    child = repo / "packages" / "child"
+    parent_source.parent.mkdir(parents=True)
+    child.mkdir(parents=True)
+    (repo / ".git").mkdir()
+    marker = child / ".git"
+    if marker_is_file:
+        marker.write_text("gitdir: /external/git-metadata\n")
+    else:
+        marker.mkdir()
+    parent_source.write_text("parent = True\n")
+    child_source = child / "child.py"
+    child_source.write_text("child = True\n")
+    monkeypatch.setattr(discovery, "_git_check_ignored_paths", lambda *_: None)
+    monkeypatch.setattr(
+        discovery, "_list_git_non_ignored_paths",
+        lambda _: ["src/parent.py", "packages/child/child.py"] if mode == "git" else None,
+    )
+
+    entries = discovery.discover(repo, skip_always_dirs=mode != "library")
+
+    assert [entry.rel_path for entry in entries] == ["src/parent.py"]
+    assert discovery.build_file_entry(child_source, repo) is None
+    assert discovery.build_file_entry(marker, repo) is None
+    assert discovery.build_file_entry(child_source, child) is not None
+
+
+@pytest.mark.parametrize("alias_inside_child", [False, True])
+def test_source_aliases_cannot_cross_nested_git_boundaries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, alias_inside_child: bool,
+) -> None:
+    repo = tmp_path / "repo"
+    child = repo / "child"
+    child.mkdir(parents=True)
+    (child / ".git").mkdir()
+    source = (repo if alias_inside_child else child) / "source.py"
+    source.write_text("value = True\n")
+    alias = (child if alias_inside_child else repo) / "alias.py"
+    alias.symlink_to(source)
+    monkeypatch.setattr(discovery, "_list_git_non_ignored_paths", lambda _: [str(alias.relative_to(repo))])
+    monkeypatch.setattr(discovery, "_git_check_ignored_paths", lambda *_: None)
+
+    assert discovery.build_file_entry(alias, repo) is None
+    assert discovery.discover(repo) == []
+
+
+def test_fallback_prunes_nested_repositories_and_directory_aliases_before_descent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    source = repo / "src" / "parent.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("parent = True\n")
+    child = repo / "child"
+    (child / ".git").mkdir(parents=True)
+    (child / "child.py").write_text("child = True\n")
+    (source.parent / "cycle").symlink_to(repo, target_is_directory=True)
+    (repo / "child-alias").symlink_to(child, target_is_directory=True)
+    scanned: list[Path] = []
+    real_scandir = os.scandir
+
+    @contextmanager
+    def scan(path: str | os.PathLike[str]) -> Iterator[Iterator[os.DirEntry[str]]]:
+        directory = Path(path)
+        assert directory in {repo, source.parent}
+        scanned.append(directory)
+        with real_scandir(path) as entries:
+            yield entries
+
+    monkeypatch.setattr(discovery, "_list_git_non_ignored_paths", lambda _: None)
+    monkeypatch.setattr(discovery, "_git_check_ignored_paths", lambda *_: None)
+    monkeypatch.setattr(discovery.os, "scandir", scan)
+
+    assert [entry.rel_path for entry in discovery.discover(repo)] == ["src/parent.py"]
+    assert set(scanned) == {repo, source.parent}

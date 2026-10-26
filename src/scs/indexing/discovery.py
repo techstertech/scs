@@ -7,6 +7,7 @@ change detection.
 
 import hashlib
 import logging
+import os
 import subprocess
 from collections import defaultdict
 from dataclasses import dataclass
@@ -16,7 +17,12 @@ import pathspec
 from pathspec.pattern import Pattern
 
 from scs.indexing.parser.native import NativeParser
-from scs.source_paths import lexical_file_in_repo
+from scs.source_paths import (
+    GIT_METADATA_NAME,
+    is_git_repository_root,
+    is_nested_repository_file,
+    lexical_file_in_repo,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -456,8 +462,10 @@ def build_file_entry(
     if lexical_path is None:
         return None
     file_path = lexical_path
+    if is_nested_repository_file(file_path, repo_path):
+        return None
     target = _resolved_file_in_repo(file_path, repo_path)
-    if target is None:
+    if target is None or is_nested_repository_file(target, repo_path):
         return None
     rel_file_path = file_path.relative_to(repo_path)
     target_rel_path = target.relative_to(repo_path)
@@ -521,7 +529,8 @@ def discover(
     when ``skip_always_dirs`` is enabled; library-ingestion callers that
     intentionally include ``node_modules``/``.venv`` still use the
     filesystem walk. Falls back to a filesystem walk with a root
-    ``.gitignore`` matcher when Git is unavailable.
+    ``.gitignore`` matcher when Git is unavailable. Both paths stop at nested
+    Git roots; callers must ingest those repositories separately.
 
     Args:
         repo_path: Root directory to scan.
@@ -541,19 +550,25 @@ def discover(
 
     if candidate_rel_paths is None:
         candidates: list[tuple[Path, str]] = []
-        for file_path in repo_path.rglob("*"):
-            # Skip directories.
-            if file_path.is_dir():
-                continue
-
-            # Skip files in always-excluded directories (unless disabled
-            # for library ingestion where source IS inside venv/node_modules).
-            rel_file_path = file_path.relative_to(repo_path)
-
-            if skip_always_dirs and _is_in_always_skipped_directory(rel_file_path):
-                continue
-
-            candidates.append((file_path, rel_file_path.as_posix()))
+        # Prune before descent: nested repositories own their entire subtree.
+        # Directory aliases are never followed, so cycles cannot recurse.
+        for directory, child_directories, filenames in os.walk(
+            repo_path, followlinks=False
+        ):
+            root = Path(directory)
+            child_directories[:] = [
+                name
+                for name in child_directories
+                if name != GIT_METADATA_NAME
+                and not (skip_always_dirs and name in ALWAYS_SKIP_DIRS)
+                and not (root / name).is_symlink()
+                and not is_git_repository_root(root / name)
+            ]
+            candidates.extend(
+                (root / name, (root / name).relative_to(repo_path).as_posix())
+                for name in filenames
+                if name != GIT_METADATA_NAME
+            )
 
         ignored_paths = _resolve_ignored_paths(
             repo_path,
@@ -570,7 +585,11 @@ def discover(
             (repo_path / rel_path, rel_path) for rel_path in candidate_rel_paths
         )
 
-    candidate_items = list(iterable)
+    candidate_items = [
+        (file_path, rel_path)
+        for file_path, rel_path in iterable
+        if not is_nested_repository_file(file_path, repo_path)
+    ]
     pruned_directories: set[str] = (
         _pruned_large_directories(
             repo_path, [rel_path for _, rel_path in candidate_items], policy
@@ -583,6 +602,7 @@ def discover(
         rel_path: target
         for file_path, rel_path in candidate_items
         if (target := _resolved_file_in_repo(file_path, repo_path)) is not None
+        and not is_nested_repository_file(target, repo_path)
     }
     alias_target_paths = {
         target.relative_to(repo_path).as_posix()

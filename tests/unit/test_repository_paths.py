@@ -48,7 +48,7 @@ def test_find_indexed_parent_returns_nearest_parent_and_allows_exact_repo(
     assert repository_paths.find_indexed_parent_repo(sibling, [str(root)]) is None
 
 
-def test_ingestion_policy_rejects_home_and_nested_repository(
+def test_ingestion_policy_rejects_home_and_overlapping_source_folder(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     home = tmp_path / "home"
@@ -120,3 +120,18 @@ def test_true_case_lookup_falls_back_when_parent_cannot_be_listed(
     monkeypatch.setattr(repository_paths.os, "listdir", deny_listing)
 
     assert repository_paths._true_case_child(parent, "Child") == parent / "Child"
+
+
+@pytest.mark.parametrize("marker_is_file", [False, True])
+def test_nested_git_root_can_be_enrolled_independently(tmp_path: Path, marker_is_file: bool) -> None:
+    parent = tmp_path / "parent"
+    child = parent / "child"
+    child.mkdir(parents=True)
+    marker = child / ".git"
+    if marker_is_file:
+        marker.write_text("gitdir: /external/git-metadata\n")
+    else:
+        marker.mkdir()
+    graph = Graph({str(parent.resolve()): {"file_count": 1}})
+
+    repository_paths.assert_ingestable_repo_path(graph, child)

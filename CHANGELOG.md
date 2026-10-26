@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- fix(indexing): stop traversal at nested Git repositories
+- fix(indexing): allow independent ingestion of nested Git roots
+
 ## 0.2.4 - 2026-10-26
 
 - fix(reranking): honor configured exact trusted hosts

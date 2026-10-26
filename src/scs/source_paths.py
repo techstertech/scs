@@ -6,6 +6,31 @@ import os
 from pathlib import Path
 
 
+GIT_METADATA_NAME = ".git"
+
+
+def is_git_repository_root(directory: Path) -> bool:
+    """Recognize repository, submodule, and linked-checkout boundaries."""
+
+    marker = directory / GIT_METADATA_NAME
+    return marker.is_dir() or marker.is_file()
+
+
+def is_nested_repository_file(file_path: Path, repo_path: Path) -> bool:
+    """Exclude Git metadata and files owned by a repository below the selected root."""
+
+    relative = file_path.relative_to(repo_path)
+    if GIT_METADATA_NAME in relative.parts:
+        return True
+
+    directory = repo_path
+    for part in relative.parts[:-1]:
+        directory /= part
+        if is_git_repository_root(directory):
+            return True
+    return False
+
+
 def lexical_file_in_repo(file_path: Path, repo_path: Path) -> Path | None:
     """Normalize root aliases while retaining aliases beneath the repository."""
 
