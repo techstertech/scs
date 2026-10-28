@@ -4,6 +4,9 @@ Date: 2026-09-14
 
 Status: Analysis and recommendations
 
+Follow-up: [October effectiveness research](codex-scs-usage-analysis-2026-10-28.md)
+examines the current query interface and prioritizes engineering outcomes.
+
 > Historical analysis of the September 2026 tool inventory. The seven read
 > tools discussed below were replaced by `query_code`. Use the
 > [migration guide](query-code-migration.md) and [current MCP reference](mcp-tools.md)
