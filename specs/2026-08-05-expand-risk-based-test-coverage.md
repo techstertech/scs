@@ -1,3 +1,7 @@
+> The blanket nested-root denial is replaced by
+> [independent nested Git repositories](2026-10-26-nested-repository-boundaries.md).
+> Other safety and coverage requirements remain unchanged.
+
 # Expand risk-based test coverage
 
 Status: shipped

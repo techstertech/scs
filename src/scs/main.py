@@ -60,6 +60,7 @@ def build_reranker(settings: SCSSettings) -> RerankingProvider | None:
     return OpenAICompatibleRerankingProvider(
         base_url=settings.openai_compatible_base_url,
         model_name=model_name,
+        trusted_hosts=settings.openai_compatible_trusted_hosts,
     )
 
 

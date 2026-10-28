@@ -18,6 +18,8 @@ import os
 from pathlib import Path
 from typing import Protocol
 
+from scs.source_paths import is_git_repository_root
+
 logger = logging.getLogger(__name__)
 
 
@@ -98,8 +100,8 @@ def find_indexed_parent_repo(
     """Return the nearest indexed repo that contains ``repo_path``.
 
     Re-ingesting the same repo is allowed. Ingesting a nested project inside
-    an already-indexed parent is not, because it creates duplicate repo scopes
-    and duplicate nodes for the same files.
+    an already-indexed parent requires a separate Git root; ordinary source
+    subdirectories remain part of the existing repository scope.
     """
     candidate = Path(canonicalize_repo_path(repo_path))
     nearest_parent: Path | None = None
@@ -147,7 +149,11 @@ def assert_not_user_home_repo(repo_path: str | Path) -> None:
 def assert_not_nested_under_indexed_repo(
     graph: RepositoryGraph, repo_path: str | Path
 ) -> None:
-    """Raise if ``repo_path`` is inside an already-indexed parent repo."""
+    """Reject overlapping source folders while allowing independent Git roots."""
+
+    if is_git_repository_root(Path(canonicalize_repo_path(repo_path))):
+        return
+
     parent = find_indexed_parent_repo_for_graph(graph, repo_path)
     if parent:
         raise ValueError(

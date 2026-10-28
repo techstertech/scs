@@ -92,6 +92,7 @@ reranking_model = "your-installed-reranker"
 ```
 
 An absent `reranking_model` disables reranking. A configured model uses the
-same validated `openai_compatible_base_url` as local embeddings and sends no
+same validated `openai_compatible_base_url` and exact-host trust list
+(`openai_compatible_trusted_hosts`) as local embeddings and sends no
 credentials. An unavailable or malformed reranker degrades to deterministic
 fused retrieval without making search unavailable.

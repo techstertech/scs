@@ -4,6 +4,22 @@ SCS starts with an empty index. Repositories are enrolled only through an
 explicit CLI, MCP, or client request. Indexing is durable background work;
 `scs status` reports progress and `get_graph_stats` reports index readiness.
 
+## Repository boundaries
+
+Index each Git repository explicitly. Discovery traverses ordinary source
+folders but stops at nested roots marked by a `.git` directory or file.
+This includes submodules and linked checkouts. A parent request never enrolls
+its nested repositories. Individual-file requests cannot bypass this boundary,
+including through source aliases.
+
+Parent and child repositories can be enrolled independently in either order.
+Normal subdirectories without their own Git marker remain part of the parent.
+Filesystem fallback prunes nested roots before descent and never follows
+directory symlinks, which prevents traversal cycles. Git metadata is excluded.
+
+After upgrading, reconcile or reindex an existing parent to remove previously
+indexed nested files. Child indexes remain independent and are preserved.
+
 ## Supported files and limits
 
 Files supported by a native parser are indexed structurally. Other regular

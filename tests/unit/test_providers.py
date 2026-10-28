@@ -487,3 +487,23 @@ async def test_openai_compatible_reranker_recovers_after_transient_failure() -> 
 
     assert (await provider.rerank("query", ["document"], limit=1))[0].score == 0.75
     assert provider.metadata.available is True
+
+
+@pytest.mark.parametrize("trusted_hosts", [(), ("another-host",), ("*.tailnet.ts.net",)])
+def test_reranker_rejects_remote_hosts_without_exact_trust(trusted_hosts: tuple[str, ...]) -> None:
+    with pytest.raises(ValueError, match="exact trusted host"):
+        OpenAICompatibleRerankingProvider(
+            base_url="http://model-host.tailnet.ts.net:10000/v1",
+            model_name="reranker",
+            trusted_hosts=trusted_hosts,
+        )
+
+
+def test_reranker_accepts_case_insensitive_exact_trust() -> None:
+    provider = OpenAICompatibleRerankingProvider(
+        base_url="http://model-host.tailnet.ts.net:10000/v1",
+        model_name="reranker",
+        trusted_hosts=("MODEL-HOST.TAILNET.TS.NET",),
+    )
+
+    assert provider.endpoint == "http://model-host.tailnet.ts.net:10000/v1/rerank"

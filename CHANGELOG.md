@@ -10,6 +10,15 @@
 
 - feat(review): explain changed-symbol impact and static test candidates
 
+## 0.2.5 - 2026-10-26
+
+- fix(indexing): stop traversal at nested Git repositories
+- fix(indexing): allow independent ingestion of nested Git roots
+
+## 0.2.4 - 2026-10-26
+
+- fix(reranking): honor configured exact trusted hosts
+
 ## 0.2.3 - 2026-10-09
 
 - fix(query): clarify inventory routing for missing-anchor goals
