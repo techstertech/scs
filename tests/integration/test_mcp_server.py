@@ -99,7 +99,7 @@ async def test_every_retained_tool_dispatches_to_its_public_route(tmp_path: Path
                 "knowledge.query",
                 {"goal": "find parser", "repo_path": repo, "mode": "balanced",
                  "node_type": None, "symbol_name": None, "node_ids": [],
-                 "file_paths": [], "source_position": None, "limit": 10, "changed_ranges": []},
+                 "file_paths": [], "source_position": None, "limit": 10, "changed_ranges": [], "contract_paths": []},
             ),
         ),
         (

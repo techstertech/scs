@@ -79,7 +79,7 @@ replacement is required. Keep Cortex and active terminal sessions running.
 ## Execution
 
 - [x] Changed-symbol impact and explainable tests.
-- [ ] Active contract retrieval.
+- [x] Active contract retrieval.
 - [ ] Grounded anchor resolution.
 - [ ] Investigation coverage.
 
@@ -91,3 +91,11 @@ range validation, MCP dispatch, source aliases, and service path containment.
 `just verify` reached native build; its maturin resolver cannot reach PyPI DNS.
 The installed native adapter was used for targeted tests. Full verification
 remains outstanding; later units will reuse targeted and broader checks.
+
+Unit 2: 29 targeted tests passed. Contract cases cover source links, backlinks,
+supersession, unknown status, escaping symlinks, missing files, byte limits,
+output limits, and public query evidence. Strict types and lint passed.
+
+The full Python suite passed outside the sandbox: 447 tests. The sandbox-only
+run failed on Unix socket binding and process inspection; the permitted rerun
+resolved those failures.

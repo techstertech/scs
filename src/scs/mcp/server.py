@@ -79,6 +79,7 @@ def build_mcp(
         source_position: SourcePosition | None = None,
         limit: int = 10,
         changed_ranges: list[ChangedRange] | None = None,
+        contract_paths: list[str] | None = None,
     ) -> QueryCodeOutput:
         """Investigate a code goal with one bounded, inspectable playbook."""
 
@@ -94,6 +95,7 @@ def build_mcp(
                 source_position=source_position,
                 limit=limit,
                 changed_ranges=changed_ranges or [],
+                contract_paths=contract_paths or [],
             )
         )
         return cast(

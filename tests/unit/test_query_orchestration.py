@@ -88,7 +88,7 @@ async def test_each_playbook_uses_only_its_fixed_routes(
     assert provider.calls == 1
     assert expected_route in [method for method, _params in routes.calls]
     assert result["trace"]
-    assert set(result["evidence"]) == {
+    assert set(result["evidence"]) >= {
         "symbols", "files", "relationships", "references", "test_targets"
     }
 
@@ -210,3 +210,17 @@ async def test_changed_ranges_cannot_escape_repository(tmp_path: Path) -> None:
             "changed_ranges": [{"file_path": "../outside.py", "start_line": 0, "end_line": 1}],
         })
     assert routes.calls == []
+
+
+@pytest.mark.asyncio
+async def test_contract_evidence_is_returned_with_source_status(tmp_path: Path) -> None:
+    (tmp_path / 'contract.md').write_text('Status: approved\nRequired behavior.\n')
+    query = QueryOrchestrator(provider=FixedProvider(Playbook.DISCOVER), call=FakeRoutes().call)
+
+    result = await query.query({
+        'goal': 'review parser', 'repo_path': str(tmp_path), 'contract_paths': ['contract.md'],
+    })
+
+    assert result['evidence']['contracts'][0]['active'] is True
+    assert result['evidence']['contracts'][0]['content'].endswith('Required behavior.\n')
+    assert result['trace'][-1]['stage'] == 'contracts'

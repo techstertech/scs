@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- feat(review): retrieve explicitly linked contracts with lifecycle evidence
+
 - feat(review): explain changed-symbol impact and static test candidates
 
 ## 0.2.3 - 2026-10-09

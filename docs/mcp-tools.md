@@ -42,6 +42,14 @@ include dependency paths and label tests as `static_dependency`, without claimin
 runtime coverage. Unmatched ranges remain visible as `unresolved_range` file
 evidence and degrade the investigation. File-only requests retain their behavior.
 
+`contract_paths` optionally selects up to 20 repository-contained Markdown
+records. Source links and explicit backlinks from `specs/` and `decisions/`
+provide additional candidates for file-scoped queries. Contract evidence includes
+status, superseding records, link locations, a content hash, and a bounded source
+excerpt. Unknown or superseded records are never labeled active. Linkage establishes
+relevance, not compliance. Unreadable targets and bounded scans remain visible.
+No new index format or dependency is required.
+
 When configured, the Laya choice service receives only the goal, explicit anchors,
 and SCS playbook choices. A configured daemon reports ready after the service confirms
 the pinned model is warm. It waits through short outages and shuts down if

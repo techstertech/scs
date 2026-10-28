@@ -24,6 +24,7 @@ from scs.orchestration.decision import (
 )
 from scs.source_paths import validated_source_path
 from scs.services.impact import ChangedRange
+from scs.services.contracts import collect_contracts
 
 QueryMode = Literal["fast", "balanced", "thorough"]
 ServiceCall = Callable[[str, dict[str, object]], Awaitable[dict[str, object]]]
@@ -64,6 +65,7 @@ class QueryRequest(RoutingRequest):
     mode: QueryMode = "balanced"
     limit: int = Field(default=10, ge=1, le=50)
     changed_ranges: list[ChangedRange] = Field(default_factory=list, max_length=100)
+    contract_paths: list[str] = Field(default_factory=list, max_length=20)
 
     @model_validator(mode="after")
     def _normalize_anchors(self) -> "QueryRequest":
@@ -80,6 +82,9 @@ class QueryRequest(RoutingRequest):
         self.file_paths: list[str] = list(
             dict.fromkeys(self._relative_path(path, root) for path in self.file_paths)
         )
+        self.contract_paths = list(dict.fromkeys(self._relative_path(path, root) for path in self.contract_paths))
+        if any(not path.lower().endswith(".md") for path in self.contract_paths):
+            raise ValueError("contract_paths must select Markdown documents")
         for changed in self.changed_ranges:
             changed.file_path = self._relative_path(changed.file_path, root)
             if changed.file_path not in self.file_paths:
@@ -427,6 +432,21 @@ class QueryOrchestrator:
                         raw_total = response.get("total")
                         total = raw_total if isinstance(raw_total, int) else 0
                         truncated = truncated or total > len(evidence["symbols"])
+                if request.contract_paths or request.file_paths:
+                    contract_started = perf_counter()
+                    collection = await asyncio.to_thread(
+                        collect_contracts, Path(request.repo_path), request.file_paths,
+                        request.contract_paths, limit=min(request.limit, budget.hydrated_files),
+                    )
+                    evidence["contracts"] = collection["contracts"]
+                    if collection["gaps"]:
+                        evidence["contract_gaps"] = collection["gaps"]
+                        degraded_stages.append("contracts")
+                    truncated = truncated or collection["truncated"]
+                    trace.append({"stage": "contracts", "status": "degraded" if collection["gaps"] else "ok",
+                                  "truncated": collection["truncated"],
+                                  "counts": {"contracts": len(collection["contracts"]), "gaps": len(collection["gaps"])},
+                                  "elapsed_ms": (perf_counter() - contract_started) * 1_000})
         except TimeoutError:
             degraded_stages.append("execution")
             truncated = True
@@ -489,10 +509,13 @@ class QueryOrchestrator:
             evidence[category].append(projected)
 
     @staticmethod
-    def _evidence_key(item: dict[str, object]) -> tuple[str, str, str, str]:
+    def _evidence_key(item: dict[str, object]) -> tuple[str, ...]:
         return (
             str(item.get("kind", "")),
-            str(item.get("id", item.get("file_path", ""))),
+            str(item.get("id", item.get("dependent_node_id", item.get("file_path", "")))),
             str(item.get("target_id", item.get("file_path", ""))),
             str(item.get("relationship", "")),
+            str(item.get("start_line", "")),
+            str(item.get("end_line", "")),
+            str(item.get("reason", "")),
         )
