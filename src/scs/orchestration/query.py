@@ -6,12 +6,13 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from time import perf_counter
 from typing import ClassVar, Literal, TypedDict, cast
 
 from pydantic import ConfigDict, Field, model_validator
 
-from scs.graph.models import NodeType, RelationshipType
+from scs.graph.models import SYMBOL_NODE_TYPES, NodeType, RelationshipType
 from scs.orchestration.laya_provider import MODEL_REPOSITORY
 from scs.orchestration.decision import (
     DecisionProvider,
@@ -54,6 +55,20 @@ REFERENCE_RELATIONSHIPS = (
     RelationshipType.INHERITS,
     RelationshipType.IMPLEMENTS,
 )
+
+
+REFERENCE_GOAL = re.compile(r"\b(references to|callers of|call sites|usages of|incoming references)\b", re.I)
+IMPACT_GOAL = re.compile(r"\b(affected (?:tests|dependents|consumers)|impact of|dependents of|tests affected)\b", re.I)
+
+
+def requested_playbook(goal: str) -> Playbook | None:
+    """Recognize explicit investigation phrases without interpreting arbitrary prose."""
+
+    if IMPACT_GOAL.search(goal):
+        return Playbook.IMPACT
+    if REFERENCE_GOAL.search(goal):
+        return Playbook.REFERENCES
+    return None
 
 
 class QueryRequest(RoutingRequest):
@@ -198,8 +213,9 @@ class QueryOrchestrator:
             decision = await self._fallback.classify(request.routing_request())
             degraded_reason = "classifier_timeout" if isinstance(error, TimeoutError) else "classifier_unavailable"
         classification_ms = (perf_counter() - classification_started) * 1_000
-        selected = Playbook.IMPACT if request.changed_ranges else decision.playbook
-        if selected not in eligible_playbooks(request):
+        intent = requested_playbook(request.goal)
+        selected = Playbook.IMPACT if request.changed_ranges else (intent or decision.playbook)
+        if selected not in eligible_playbooks(request) and intent is None:
             selected = Playbook.DISCOVER
             degraded_reason = "ineligible_playbook"
 
@@ -209,6 +225,7 @@ class QueryOrchestrator:
         trace: list[dict[str, object]] = []
         degraded_stages: list[str] = []
         truncated = False
+        anchor_resolution: dict[str, object] = {"status": "not_needed", "candidates": []}
 
         async def stage(
             name: str, method: str, arguments: dict[str, object]
@@ -274,12 +291,58 @@ class QueryOrchestrator:
             self._append_nodes(evidence, nodes, "search")
             return nodes
 
+        async def resolve(seeds: list[dict[str, object]], *, files: bool) -> bool:
+            nonlocal anchor_resolution
+            candidates: dict[str, dict[str, object]] = {}
+            for seed in seeds:
+                path = self._file_path(seed)
+                if not isinstance(path, str):
+                    continue
+                try:
+                    relative = Path(validated_source_path(path, request.repo_path, require_file=False)).relative_to(request.repo_path).as_posix()
+                except ValueError:
+                    continue
+                if request.file_paths and relative not in request.file_paths:
+                    continue
+                identity = seed.get("id")
+                if not files and (seed.get("type") not in SYMBOL_NODE_TYPES or not isinstance(identity, str) or not identity):
+                    continue
+                candidates[relative if files else str(identity)] = {**seed, "file_path": relative}
+            exact = {
+                key: node for key, node in candidates.items()
+                if (name := node.get("file_path" if files else "name"))
+                and re.search(r"(?<![\w/])" + re.escape(str(name)) + r"(?![\w/])", request.goal)
+            }
+            choices = exact or candidates
+            # A full search page cannot establish uniqueness of a symbol candidate.
+            discovery_available = not any(item["stage"] == "search" and (item["status"] != "ok" or item["truncated"]) for item in trace)
+            unambiguous = discovery_available and len(choices) == 1 and (files or len(seeds) < min(request.limit, budget.search_seeds))
+            anchor_resolution = {
+                "status": ("unavailable" if not discovery_available else
+                           "resolved" if unambiguous else ("ambiguous" if choices else "missing")),
+                "scope": "returned_candidates",
+                "candidates": [_node_evidence(node, kind="anchor", stage="resolve") for node in choices.values()],
+            }
+            trace.append({"stage": "resolve", "status": "ok" if unambiguous else "degraded",
+                          "counts": {"candidates": len(choices)}, "truncated": False, "elapsed_ms": 0.0})
+            if not unambiguous:
+                degraded_stages.append("resolve")
+                return False
+            node = next(iter(choices.values()))
+            if files:
+                request.file_paths = [str(node["file_path"])]
+            else:
+                request.node_ids = [str(node["id"])]
+            return True
+
         async def related(*, incoming: bool = False) -> None:
             identities = request.node_ids[:1]
             symbol = request.symbol_name if not identities else None
             if not identities and symbol is None:
                 seeds = await search()
-                identities = [str(seed.get("id", "")) for seed in seeds[:1] if seed.get("id")]
+                if not await resolve(seeds, files=False):
+                    return
+                identities = request.node_ids[:1]
             if not identities and symbol is None:
                 return
             edge_types: tuple[RelationshipType | None, ...] = (
@@ -331,9 +394,15 @@ class QueryOrchestrator:
 
         try:
             async with asyncio.timeout(budget.total_seconds):
+                if selected not in eligible_playbooks(request):
+                    grounded = await resolve(await search(), files=selected is Playbook.IMPACT)
+                    if not grounded:
+                        selected = Playbook.DISCOVER
+                        degraded_reason = "anchor_" + str(anchor_resolution["status"])
                 match selected:
                     case Playbook.DISCOVER:
-                        await search()
+                        if anchor_resolution["status"] not in {"ambiguous", "missing", "unavailable"}:
+                            await search()
                     case Playbook.UNDERSTAND:
                         await related()
                     case Playbook.RELATIONSHIPS:
@@ -463,6 +532,7 @@ class QueryOrchestrator:
             "repo_path": request.repo_path,
             "routing": {
                 "requested_mode": request.mode,
+                "anchor_resolution": anchor_resolution,
                 "playbook": selected.value,
                 "provider": "laya" if decision.model.startswith(f"{MODEL_REPOSITORY}@") else "deterministic",
                 "model": decision.model,

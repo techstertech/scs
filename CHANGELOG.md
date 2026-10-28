@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- feat(query): resolve missing investigation anchors without guessing ambiguous symbols
+
 - feat(review): retrieve explicitly linked contracts with lifecycle evidence
 
 - feat(review): explain changed-symbol impact and static test candidates

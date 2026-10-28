@@ -50,6 +50,14 @@ excerpt. Unknown or superseded records are never labeled active. Linkage establi
 relevance, not compliance. Unreadable targets and bounded scans remain visible.
 No new index format or dependency is required.
 
+Explicit goals such as "Find references to parse", "Find callers of parse", and
+"Find affected dependents of parse" select the corresponding bounded investigation.
+If its required anchor is absent, one discovery stage resolves a unique candidate.
+Duplicate symbols, unavailable discovery, and full candidate pages cannot silently
+select a first symbol. `routing.anchor_resolution` exposes candidates, status,
+and its scope. It describes returned candidates, not global name uniqueness.
+Grounding retains one classifier call and the existing mode deadline.
+
 When configured, the Laya choice service receives only the goal, explicit anchors,
 and SCS playbook choices. A configured daemon reports ready after the service confirms
 the pinned model is warm. It waits through short outages and shuts down if

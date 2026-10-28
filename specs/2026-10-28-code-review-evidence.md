@@ -80,7 +80,7 @@ replacement is required. Keep Cortex and active terminal sessions running.
 
 - [x] Changed-symbol impact and explainable tests.
 - [x] Active contract retrieval.
-- [ ] Grounded anchor resolution.
+- [x] Grounded anchor resolution.
 - [ ] Investigation coverage.
 
 ## Verification results
@@ -99,3 +99,11 @@ output limits, and public query evidence. Strict types and lint passed.
 The full Python suite passed outside the sandbox: 447 tests. The sandbox-only
 run failed on Unix socket binding and process inspection; the permitted rerun
 resolved those failures.
+
+Unit 3: targeted query, routing, and MCP tests passed. Explicit reference and
+impact goals resolve candidates through one discovery stage. Ambiguous, unsafe,
+partial, or absent candidates cannot silently choose a first symbol. Resolution
+reports its returned-candidate scope, not global symbol uniqueness.
+
+`just verify` passed outside the sandbox after unit 2: 447 Python tests,
+87.27% coverage, 108 Rust tests, strict types, lint, and native build.

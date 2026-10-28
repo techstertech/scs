@@ -224,3 +224,73 @@ async def test_contract_evidence_is_returned_with_source_status(tmp_path: Path) 
     assert result['evidence']['contracts'][0]['active'] is True
     assert result['evidence']['contracts'][0]['content'].endswith('Required behavior.\n')
     assert result['trace'][-1]['stage'] == 'contracts'
+
+
+@pytest.mark.asyncio
+async def test_missing_reference_anchor_is_grounded_before_traversal(tmp_path: Path) -> None:
+    routes = FakeRoutes()
+    query = QueryOrchestrator(provider=FixedProvider(Playbook.DISCOVER), call=routes.call)
+
+    result = await query.query({'goal': 'Find callers of parse', 'repo_path': str(tmp_path)})
+
+    assert routes.calls[0][0] == 'knowledge.search'
+    assert all(params['node_id'] == 'node-1' for method, params in routes.calls if method == 'knowledge.related')
+    assert result['routing']['playbook'] == 'REFERENCES'
+    assert result['routing']['anchor_resolution']['status'] == 'resolved'
+
+
+@pytest.mark.asyncio
+async def test_duplicate_symbol_candidates_do_not_trigger_traversal(tmp_path: Path) -> None:
+    class AmbiguousRoutes(FakeRoutes):
+        async def call(self, method: str, params: dict[str, object]) -> dict[str, object]:
+            self.calls.append((method, params))
+            assert method == 'knowledge.search'
+            return {'results': [
+                {'id': f'parse-{index}', 'type': 'function', 'name': 'parse', 'file_path': f'{index}.py'}
+                for index in range(2)
+            ]}
+
+    routes = AmbiguousRoutes()
+    query = QueryOrchestrator(provider=FixedProvider(Playbook.DISCOVER), call=routes.call)
+    result = await query.query({'goal': 'Find references to parse', 'repo_path': str(tmp_path)})
+
+    assert result['routing']['anchor_resolution']['status'] == 'ambiguous'
+    assert len(result['routing']['anchor_resolution']['candidates']) == 2
+    assert result['complete'] is False
+    assert len(routes.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_missing_impact_file_is_resolved_without_second_classification(tmp_path: Path) -> None:
+    routes = FakeRoutes()
+    provider = FixedProvider(Playbook.DISCOVER)
+    query = QueryOrchestrator(provider=provider, call=routes.call)
+    result = await query.query({'goal': 'Find affected dependents of parse', 'repo_path': str(tmp_path)})
+
+    assert provider.calls == 1
+    assert routes.calls[1][0] == 'knowledge.composite.regression_risk'
+    assert routes.calls[1][1]['file_paths'] == ['parser.py']
+    assert result['routing']['playbook'] == 'IMPACT'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failure', ['empty', 'unsafe', 'partial', 'full_page'])
+async def test_unreliable_discovery_never_becomes_a_reference_anchor(tmp_path: Path, failure: str) -> None:
+    class UnreliableRoutes(FakeRoutes):
+        async def call(self, method: str, params: dict[str, object]) -> dict[str, object]:
+            self.calls.append((method, params))
+            assert method == 'knowledge.search'
+            nodes = [{'id': 'node', 'name': 'parse', 'type': 'function',
+                      'file_path': '../outside.py' if failure == 'unsafe' else 'parser.py'}]
+            if failure == 'empty':
+                nodes = []
+            elif failure == 'full_page':
+                nodes *= 10
+            return {'results': nodes, 'timed_out': failure == 'partial'}
+
+    routes = UnreliableRoutes()
+    query = QueryOrchestrator(provider=FixedProvider(Playbook.DISCOVER), call=routes.call)
+    result = await query.query({'goal': 'Find references to parse', 'repo_path': str(tmp_path)})
+    assert result['complete'] is False
+    assert result['routing']['anchor_resolution']['status'] != 'resolved'
+    assert len(routes.calls) == 1
