@@ -23,6 +23,7 @@ from scs.mcp.paths import (
 )
 from scs.orchestration.decision import SourcePosition
 from scs.orchestration.query import QueryCodeOutput, QueryRequest
+from scs.services.impact import ChangedRange
 
 ToolInputT = TypeVar("ToolInputT")
 
@@ -77,6 +78,7 @@ def build_mcp(
         file_paths: list[str] | None = None,
         source_position: SourcePosition | None = None,
         limit: int = 10,
+        changed_ranges: list[ChangedRange] | None = None,
     ) -> QueryCodeOutput:
         """Investigate a code goal with one bounded, inspectable playbook."""
 
@@ -91,6 +93,7 @@ def build_mcp(
                 file_paths=file_paths or [],
                 source_position=source_position,
                 limit=limit,
+                changed_ranges=changed_ranges or [],
             )
         )
         return cast(

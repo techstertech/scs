@@ -33,6 +33,15 @@ the unified tool with versioned internal-route sequences on this repository.
 The `IMPACT` playbook uses bounded incoming dependency analysis and includes
 test-file targets backed by direct dependency edges.
 
+For a changed-symbol review, supply `changed_ranges`, for example
+`[{"file_path": "src/parser.py", "start_line": 10, "end_line": 14}]`.
+Lines are zero-based and inclusive in the indexed revision. Up to 100 ranges
+across 20 files are accepted. Range paths join `file_paths` and select IMPACT.
+Two incoming dependency hops identify consumers and test candidates. Results
+include dependency paths and label tests as `static_dependency`, without claiming
+runtime coverage. Unmatched ranges remain visible as `unresolved_range` file
+evidence and degrade the investigation. File-only requests retain their behavior.
+
 When configured, the Laya choice service receives only the goal, explicit anchors,
 and SCS playbook choices. A configured daemon reports ready after the service confirms
 the pinned model is warm. It waits through short outages and shuts down if

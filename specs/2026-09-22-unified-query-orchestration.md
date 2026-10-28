@@ -9,6 +9,7 @@ decision: decisions/2026-09-22-unify-agent-code-queries.md
 decision-runtime: decisions/2026-09-23-use-native-mlx-for-query-routing.md
 supersedes:
 superseded-by:
+  - specs/2026-10-28-code-review-evidence.md (additive review inputs and evidence only)
   - specs/2026-09-23-classifier-daemon-readiness.md (Laya startup and recovery only)
   - specs/2026-09-25-consume-external-laya-inference.md (Laya runtime ownership only)
 implementation:

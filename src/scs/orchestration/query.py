@@ -23,6 +23,7 @@ from scs.orchestration.decision import (
     eligible_playbooks,
 )
 from scs.source_paths import validated_source_path
+from scs.services.impact import ChangedRange
 
 QueryMode = Literal["fast", "balanced", "thorough"]
 ServiceCall = Callable[[str, dict[str, object]], Awaitable[dict[str, object]]]
@@ -62,6 +63,7 @@ class QueryRequest(RoutingRequest):
     repo_path: str = Field(min_length=1, max_length=2048)
     mode: QueryMode = "balanced"
     limit: int = Field(default=10, ge=1, le=50)
+    changed_ranges: list[ChangedRange] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")
     def _normalize_anchors(self) -> "QueryRequest":
@@ -78,6 +80,12 @@ class QueryRequest(RoutingRequest):
         self.file_paths: list[str] = list(
             dict.fromkeys(self._relative_path(path, root) for path in self.file_paths)
         )
+        for changed in self.changed_ranges:
+            changed.file_path = self._relative_path(changed.file_path, root)
+            if changed.file_path not in self.file_paths:
+                self.file_paths.append(changed.file_path)
+        if len(self.file_paths) > 20:
+            raise ValueError("at most 20 review files are allowed")
         if self.source_position is not None:
             self.source_position: SourcePosition | None = SourcePosition(
                 file_path=self._relative_path(
@@ -185,7 +193,7 @@ class QueryOrchestrator:
             decision = await self._fallback.classify(request.routing_request())
             degraded_reason = "classifier_timeout" if isinstance(error, TimeoutError) else "classifier_unavailable"
         classification_ms = (perf_counter() - classification_started) * 1_000
-        selected = decision.playbook
+        selected = Playbook.IMPACT if request.changed_ranges else decision.playbook
         if selected not in eligible_playbooks(request):
             selected = Playbook.DISCOVER
             degraded_reason = "ineligible_playbook"
@@ -392,13 +400,21 @@ class QueryOrchestrator:
                             {"repo_path": request.repo_path,
                              "file_paths": request.file_paths,
                              "dependent_limit": min(request.limit, 50),
-                             "test_target_limit": min(request.limit, 50)},
+                             "test_target_limit": min(request.limit, 50),
+                             **({"changed_ranges": [item.model_dump() for item in request.changed_ranges]}
+                                if request.changed_ranges else {})},
                         )
                         self._append_nodes(evidence, _objects(response.get("dependents")), "impact")
+                        self._append_nodes(evidence, _objects(response.get("changed_symbols")), "impact")
+                        for unresolved in _objects(response.get("unresolved_ranges")):
+                            evidence["files"].append({"kind": "unresolved_range", **unresolved, "stage": "impact"})
+                        for path in _objects(response.get("dependency_paths")):
+                            evidence["relationships"].append({"kind": "dependency_path", **path, "stage": "impact"})
                         for target in _objects(response.get("test_targets")):
                             evidence["test_targets"].append(
                                 {"kind": "test_target", "file_path": target.get("file_path"),
-                                 "evidence": target.get("evidence", []), "stage": "impact"}
+                                 "evidence": target.get("evidence", []),
+                                 "evidence_kind": target.get("evidence_kind", "static_dependency"), "stage": "impact"}
                             )
                     case Playbook.INVENTORY:
                         response = await stage(

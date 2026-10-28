@@ -180,3 +180,33 @@ async def test_recovery_wait_precedes_classifier_deadline(tmp_path: Path) -> Non
     result = await asyncio.wait_for(task, timeout=1)
     assert result["routing"]["playbook"] == Playbook.REFERENCES.value
     assert result["routing"]["fallback_applied"] is False
+
+
+@pytest.mark.asyncio
+async def test_changed_ranges_select_impact_and_join_file_anchors(tmp_path: Path) -> None:
+    routes = FakeRoutes()
+    query = QueryOrchestrator(provider=FixedProvider(Playbook.DISCOVER), call=routes.call)
+    changed = {"file_path": "parser.py", "start_line": 1, "end_line": 2}
+
+    result = await query.query({
+        "goal": "review parser", "repo_path": str(tmp_path), "changed_ranges": [changed],
+    })
+
+    method, params = routes.calls[0]
+    assert method == "knowledge.composite.regression_risk"
+    assert params["file_paths"] == ["parser.py"]
+    assert params["changed_ranges"] == [changed]
+    assert result["routing"]["playbook"] == "IMPACT"
+
+
+@pytest.mark.asyncio
+async def test_changed_ranges_cannot_escape_repository(tmp_path: Path) -> None:
+    routes = FakeRoutes()
+    query = QueryOrchestrator(provider=FixedProvider(Playbook.DISCOVER), call=routes.call)
+
+    with pytest.raises(ValueError, match="escapes repository"):
+        await query.query({
+            "goal": "review", "repo_path": str(tmp_path),
+            "changed_ranges": [{"file_path": "../outside.py", "start_line": 0, "end_line": 1}],
+        })
+    assert routes.calls == []

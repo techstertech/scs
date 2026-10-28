@@ -27,6 +27,7 @@ from scs.indexing.search import (
 )
 from scs.providers.base import EmbeddingProvider, RerankingProvider
 from scs.source_paths import validated_source_path
+from scs.services.impact import ChangedRange, changed_symbol_impact
 
 GraphForRepository = Callable[[str], NativeGraph | None]
 BindingForRepository = Callable[[str], tuple[str, str] | None]
@@ -858,10 +859,25 @@ class SCSServiceRoutes:
             MAX_REGRESSION_RISK_LIMIT,
             _integer(params, "test_target_limit", DEFAULT_TEST_TARGET_LIMIT, minimum=1),
         )
+        ranges_raw = params.get("changed_ranges", [])
+        if not isinstance(ranges_raw, list) or len(cast(list[object], ranges_raw)) > 100:
+            raise ValueError("changed_ranges must contain at most 100 ranges")
+        ranges = [ChangedRange.model_validate(item) for item in cast(list[object], ranges_raw)]
+        for changed in ranges:
+            changed.file_path = Path(validated_source_path(
+                changed.file_path, str(root), require_file=False,
+            )).relative_to(root).as_posix()
         started = perf_counter()
         graph = self._read_graph(repo_path)
         if graph is None:
-            return self._empty_regression_risk(raw_paths, started)
+            empty = self._empty_regression_risk(raw_paths, started)
+            if ranges:
+                empty.update(complete=False, degraded_reason="index_unavailable")
+            return empty
+        if ranges:
+            return await asyncio.to_thread(
+                changed_symbol_impact, graph, str(root), ranges, limit=min(dependent_limit, test_target_limit),
+            )
         lookup_started = perf_counter()
         affected_ids: list[str] = []
         for raw_path in raw_paths:
