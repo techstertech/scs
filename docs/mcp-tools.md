@@ -47,7 +47,9 @@ records. Source links and explicit backlinks from `specs/` and `decisions/`
 provide additional candidates for file-scoped queries. Contract evidence includes
 status, superseding records, link locations, a content hash, and a bounded source
 excerpt. Unknown or superseded records are never labeled active. Linkage establishes
-relevance, not compliance. Unreadable targets and bounded scans remain visible.
+relevance, not compliance. Explicit roots take priority over catalog scans; local
+supersession links are followed within the read budget. Active candidates sort
+before historical records. Unreadable targets and bounded scans remain visible.
 No new index format or dependency is required.
 
 Explicit goals such as "Find references to parse", "Find callers of parse", and
@@ -57,6 +59,14 @@ Duplicate symbols, unavailable discovery, and full candidate pages cannot silent
 select a first symbol. `routing.anchor_resolution` exposes candidates, status,
 and its scope. It describes returned candidates, not global name uniqueness.
 Grounding retains one classifier call and the existing mode deadline.
+
+Every response also includes `investigation` facts for implementation, dependents,
+tests, references, and contracts. Each records `status`, `evidence_count`, executed
+`stages`, and a reason. Status is `assessed`, `empty`, `partial`, `unavailable`, or
+`not_assessed`. Finding a test filename during discovery does not mean dependency
+analysis ran. `assessed` describes static evidence, not correctness or execution
+coverage. Existing `complete` still describes the bounded playbook. Unavailable
+reference providers and missing impact indexes cannot masquerade as empty success.
 
 When configured, the Laya choice service receives only the goal, explicit anchors,
 and SCS playbook choices. A configured daemon reports ready after the service confirms

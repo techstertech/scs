@@ -26,6 +26,7 @@ from scs.orchestration.decision import (
 from scs.source_paths import validated_source_path
 from scs.services.impact import ChangedRange
 from scs.services.contracts import collect_contracts
+from scs.orchestration.coverage import AspectCoverage, investigation_coverage
 
 QueryMode = Literal["fast", "balanced", "thorough"]
 ServiceCall = Callable[[str, dict[str, object]], Awaitable[dict[str, object]]]
@@ -145,6 +146,7 @@ class QueryCodeOutput(TypedDict):
     truncated: bool
     degraded_stages: list[str]
     timings: dict[str, float]
+    investigation: dict[str, AspectCoverage]
 
 
 def _node_evidence(
@@ -234,7 +236,8 @@ class QueryOrchestrator:
             stage_started = perf_counter()
             try:
                 response = await self._call(method, arguments)
-                reason = response.get("degraded_reason")
+                unavailable = response.get("available") is False
+                reason = response.get("degraded_reason") or ("unavailable" if unavailable else None)
                 timed_out = response.get("timed_out") is True
                 was_truncated = any(
                     response.get(key) is True
@@ -249,7 +252,7 @@ class QueryOrchestrator:
                 trace.append(
                     {
                         "stage": name,
-                        "status": "degraded" if reason or timed_out else "ok",
+                        "status": "unavailable" if unavailable else "degraded" if reason or timed_out else "ok",
                         "counts": {
                             key: len(cast(list[object], value))
                             for key, value in response.items()
@@ -260,6 +263,10 @@ class QueryOrchestrator:
                     }
                 )
                 return response
+            except asyncio.CancelledError:
+                trace.append({"stage": name, "status": "timeout", "counts": {},
+                              "truncated": True, "elapsed_ms": (perf_counter() - stage_started) * 1_000})
+                raise
             except Exception as error:
                 degraded_stages.append(name)
                 trace.append(
@@ -530,6 +537,7 @@ class QueryOrchestrator:
         return {
             "goal": request.goal,
             "repo_path": request.repo_path,
+            "investigation": investigation_coverage(evidence, trace),
             "routing": {
                 "requested_mode": request.mode,
                 "anchor_resolution": anchor_resolution,

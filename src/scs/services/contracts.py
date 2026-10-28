@@ -101,8 +101,12 @@ def collect_contracts(
             if target.lower().endswith(".md"):
                 selected.setdefault(target, []).append({"kind": "source_link", "file_path": source, "line": line})
 
+    # Caller-selected and directly linked records take priority over catalog scans.
+    for path in selected:
+        read(path)
+
     # Existing records can link to code without requiring new annotations.
-    for directory in ("specs", "decisions"):
+    for directory in (("specs", "decisions") if sources else ()):
         folder = root / directory
         try:
             validated_source_path(str(folder), str(root), require_file=False)
@@ -122,10 +126,9 @@ def collect_contracts(
                     selected.setdefault(relative, []).append({"kind": "document_link", "file_path": relative, "target": target, "line": line})
 
     contracts: list[dict[str, object]] = []
-    for path, relevance in sorted(selected.items()):
-        if len(contracts) >= limit:
-            truncated = True
-            break
+    pending = sorted(selected)
+    for path in pending:
+        relevance = selected[path]
         text = read(path)
         if text is None:
             continue
@@ -141,8 +144,10 @@ def collect_contracts(
                     continue
                 try:
                     target = _target(root, path, raw)
-                    if target:
-                        successors.append(target)
+                    successors.append(target or "unresolved")
+                    if target.lower().endswith(".md") and target not in selected:
+                        selected[target] = [{"kind": "supersession", "file_path": path}]
+                        pending.append(target)
                 except ValueError:
                     gaps.append({"file_path": path, "reason": "unsafe_successor"})
                     successors.append("unresolved")
@@ -154,4 +159,6 @@ def collect_contracts(
             "content": text[:MAX_CONTENT_CHARACTERS],
             "content_truncated": len(text) > MAX_CONTENT_CHARACTERS,
         })
-    return {"contracts": contracts, "gaps": gaps, "truncated": truncated}
+    contracts.sort(key=lambda item: (not bool(item["active"]), str(item["file_path"])))
+    truncated = truncated or len(contracts) > limit
+    return {"contracts": contracts[:limit], "gaps": gaps, "truncated": truncated}

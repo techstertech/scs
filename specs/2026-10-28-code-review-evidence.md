@@ -1,5 +1,5 @@
 ---
-status: implementing
+status: shipped
 project: scs
 project-root: /Users/leonardo/Repositories/scs
 created: 2026-10-28
@@ -9,7 +9,8 @@ supersedes:
   - specs/2026-09-22-unified-query-orchestration.md (additive review inputs and evidence only)
 superseded-by:
 implementation:
-  commits: []
+  commits: [0acfc16, ec4e558, ebab3e2]
+  final-unit: investigation coverage (commit containing this sign-off)
 ---
 
 # Code review evidence
@@ -81,7 +82,7 @@ replacement is required. Keep Cortex and active terminal sessions running.
 - [x] Changed-symbol impact and explainable tests.
 - [x] Active contract retrieval.
 - [x] Grounded anchor resolution.
-- [ ] Investigation coverage.
+- [x] Investigation coverage.
 
 ## Verification results
 
@@ -107,3 +108,39 @@ reports its returned-candidate scope, not global symbol uniqueness.
 
 `just verify` passed outside the sandbox after unit 2: 447 Python tests,
 87.27% coverage, 108 Rust tests, strict types, lint, and native build.
+
+Unit 4: all five review aspects report assessed, empty, partial, unavailable, or
+not assessed. Executed dependency counts exclude changed symbols. Provider
+unavailability and interrupted stages cannot appear as empty success. The
+combined integration test runs changed ranges, native graph traversal, contract
+retrieval, and coverage through the real service boundary.
+
+Final verification: `just verify` passed outside the sandbox. Its native build,
+strict types, lint, full Python suite, coverage gate, and Rust workspace tests
+all completed. Exact totals are recorded below. Documentation links and
+`git diff --check` passed. Native build storage remained 1,975,420 KiB.
+
+Acceptance sign-off:
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Changed symbols and explained test candidates | passed | Real NativeGraph tests cover unrelated symbols, indirect tests, cycles, limits, and missing ranges. |
+| Linked contracts and lifecycle authority | passed | Generated documents cover explicit links, backlinks, supersession, unknown status, external successors, containment, and read budgets. |
+| Grounded anchors and explicit ambiguity | passed | Injected route tests cover unique, duplicate, missing, unsafe, full-page, and incomplete discovery with one classifier call. |
+| Explicit investigation coverage | passed | Public MCP tests and service integration distinguish empty, failed, partial, unassessed, and interrupted stages. |
+
+The implementation keeps the approved input and tool boundaries. The final
+coverage unit also corrected contract-budget priority, bounded supersession
+following, and deterministic dependency ordering found during integration review.
+No new dependency or persisted-format change was needed.
+
+Review order: `docs/mcp-tools.md`, `services/impact.py`, `services/contracts.py`,
+`orchestration/query.py`, `orchestration/coverage.py`, then the combined service
+test. Rollback can revert the four implementation commits in reverse order;
+no data migration is required. The running SCS daemon was not restarted.
+Live-model relevance evaluation and production activation were not performed.
+Static evidence remains bounded to the indexed source and configured traversal.
+
+Final Python result: 468 passed in 30.70s.
+Coverage summary: `TOTAL                                               6192    573   1578    323  87.70%`.
+Rust result: 108 tests passed (2 core, 96 parser, 10 store).

@@ -294,3 +294,67 @@ async def test_unreliable_discovery_never_becomes_a_reference_anchor(tmp_path: P
     assert result['complete'] is False
     assert result['routing']['anchor_resolution']['status'] != 'resolved'
     assert len(routes.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_discovery_coverage_does_not_claim_test_analysis(tmp_path: Path) -> None:
+    query = QueryOrchestrator(provider=FixedProvider(Playbook.DISCOVER), call=FakeRoutes().call)
+    result = await query.query({'goal': 'find parser', 'repo_path': str(tmp_path)})
+
+    assert result['investigation']['implementation']['status'] == 'assessed'
+    assert result['investigation']['tests']['status'] == 'not_assessed'
+    assert result['complete'] is True
+
+
+@pytest.mark.asyncio
+async def test_lsp_unavailability_is_not_an_empty_reference_result(tmp_path: Path) -> None:
+    (tmp_path / 'parser.py').write_text('def parse(): pass\n')
+
+    class UnavailableRoutes(FakeRoutes):
+        async def call(self, method: str, params: dict[str, object]) -> dict[str, object]:
+            return {'available': False, 'references': []}
+
+    query = QueryOrchestrator(provider=FixedProvider(Playbook.REFERENCES), call=UnavailableRoutes().call)
+    result = await query.query({
+        'goal': 'references', 'repo_path': str(tmp_path),
+        'source_position': {'file_path': 'parser.py', 'line': 0},
+    })
+    assert result['investigation']['references']['status'] == 'unavailable'
+    assert result['complete'] is False
+
+
+@pytest.mark.asyncio
+async def test_changed_symbols_do_not_count_as_dependents(tmp_path: Path) -> None:
+    class IsolatedRoutes(FakeRoutes):
+        async def call(self, method: str, params: dict[str, object]) -> dict[str, object]:
+            return {'changed_symbols': [{'id': 'parse', 'type': 'function', 'file_path': 'parser.py'}],
+                    'dependents': [], 'test_targets': []}
+
+    query = QueryOrchestrator(provider=FixedProvider(Playbook.IMPACT), call=IsolatedRoutes().call)
+    result = await query.query({
+        'goal': 'review', 'repo_path': str(tmp_path), 'file_paths': ['parser.py'],
+    })
+    assert result['investigation']['dependents']['status'] == 'empty'
+
+
+@pytest.mark.asyncio
+async def test_execution_deadline_marks_interrupted_reference_stage_unavailable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from scs.orchestration.query import MODE_BUDGETS, ModeBudget
+
+    (tmp_path / 'parser.py').write_text('def parse(): pass\n')
+    monkeypatch.setitem(MODE_BUDGETS, 'fast', ModeBudget(0.15, 5, 1, 1, 0.01))
+
+    class WaitingRoutes(FakeRoutes):
+        async def call(self, method: str, params: dict[str, object]) -> dict[str, object]:
+            await asyncio.Event().wait()
+            raise AssertionError('unreachable')
+
+    query = QueryOrchestrator(provider=FixedProvider(Playbook.REFERENCES), call=WaitingRoutes().call)
+    result = await query.query({
+        'goal': 'references', 'repo_path': str(tmp_path), 'mode': 'fast',
+        'source_position': {'file_path': 'parser.py', 'line': 0},
+    })
+    assert result['complete'] is False
+    assert result['truncated'] is True
+    assert result['investigation']['references']['status'] == 'unavailable'
+    assert 'execution' in result['degraded_stages']

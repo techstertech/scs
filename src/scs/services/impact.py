@@ -114,7 +114,7 @@ def changed_symbol_impact(
         frontier = following
 
     dependent_ids = sorted(set(paths) - set(seeds), key=lambda key: (len(paths[key]), key))
-    dependents = graph.batch_get_nodes_sync(dependent_ids)
+    dependents = sorted(graph.batch_get_nodes_sync(dependent_ids), key=lambda node: (len(paths[node.id]), node.id))
     test_nodes = [node for node in dependents if is_test_path(str(node.metadata.get("file_path", "")))]
     test_paths = sorted({str(node.metadata["file_path"]) for node in test_nodes})
     targets = [{
@@ -126,7 +126,7 @@ def changed_symbol_impact(
     tests_truncated = len(test_paths) > limit or bounded
     return {
         "affected_node_ids": sorted(seeds),
-        "changed_symbols": [node.model_dump(mode="json") for node in seeds.values()],
+        "changed_symbols": [seeds[key].model_dump(mode="json") for key in sorted(seeds)],
         "dependents": [node.model_dump(mode="json") for node in dependents[:limit]],
         "test_targets": targets,
         "dependency_paths": [{"dependent_node_id": key, "path": paths[key]} for key in dependent_ids[:limit]],

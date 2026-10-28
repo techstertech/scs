@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- feat(query): report assessed, empty, partial, unavailable, and unassessed review aspects
+
 - feat(query): resolve missing investigation anchors without guessing ambiguous symbols
 
 - feat(review): retrieve explicitly linked contracts with lifecycle evidence

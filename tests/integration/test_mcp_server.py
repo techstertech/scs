@@ -21,6 +21,7 @@ ROUTE_OUTPUTS: dict[str, dict[str, object]] = {
         "routing": {"playbook": "DISCOVER"},
         "evidence": {"symbols": [], "files": [], "relationships": [],
                      "references": [], "test_targets": []},
+        "investigation": {},
         "trace": [], "complete": True, "truncated": False,
         "degraded_stages": [], "timings": {"classification_ms": 0.0,
         "execution_ms": 0.0, "total_ms": 0.0},
@@ -57,7 +58,7 @@ ROUTE_OUTPUTS: dict[str, dict[str, object]] = {
 EXPECTED_OUTPUT_FIELDS: dict[str, set[str]] = {
     "query_code": {
         "goal", "repo_path", "routing", "evidence", "trace", "complete",
-        "truncated", "degraded_stages", "timings",
+        "truncated", "degraded_stages", "timings", "investigation",
     },
     "ingest_files": {"accepted", "job"},
     "ingest_project": {"accepted", "job"},
@@ -271,3 +272,18 @@ async def test_source_aliases_preserve_identity_in_mcp_forwarding(tmp_path: Path
         "file_paths": [str(target), str(alias)],
         "deleted_paths": [],
     }
+
+
+async def test_review_inputs_are_validated_and_serialized_by_mcp(tmp_path: Path) -> None:
+    gateway = RecordingGateway()
+    await build_mcp(gateway).call_tool('query_code', {
+        'goal': 'review', 'repo_path': str(tmp_path),
+        'changed_ranges': [{'file_path': 'source.py', 'start_line': 1, 'end_line': 2}],
+        'contract_paths': ['contract.md'],
+    })
+    method, params = gateway.calls[-1]
+    assert method == 'knowledge.query'
+    assert params is not None
+    assert params['file_paths'] == ['source.py']
+    assert params['changed_ranges'] == [{'file_path': 'source.py', 'start_line': 1, 'end_line': 2}]
+    assert params['contract_paths'] == ['contract.md']

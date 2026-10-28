@@ -65,3 +65,23 @@ def test_empty_successor_field_does_not_consume_following_metadata(tmp_path: Pat
     result = collect_contracts(tmp_path, [], ['contract.md'], limit=1)
     assert result['contracts'][0]['active'] is True
     assert result['contracts'][0]['superseded_by'] == []
+
+
+def test_external_successor_still_disqualifies_active_authority(tmp_path: Path) -> None:
+    (tmp_path / 'old.md').write_text('---\nstatus: shipped\nsuperseded-by: https://example.invalid/new\n---\n')
+    result = collect_contracts(tmp_path, [], ['old.md'], limit=1)
+    assert result['contracts'][0]['active'] is False
+
+
+def test_explicit_roots_keep_read_budget_and_follow_supersession(tmp_path: Path) -> None:
+    (tmp_path / 'specs').mkdir()
+    for index in range(130):
+        (tmp_path / f'specs/unrelated-{index}.md').write_text('Status: proposed\n')
+    (tmp_path / 'old.md').write_text('---\nstatus: shipped\nsuperseded-by: current.md\n---\n')
+    (tmp_path / 'current.md').write_text('Status: approved\n')
+
+    result = collect_contracts(tmp_path, [], ['old.md'], limit=1)
+
+    assert result['contracts'][0]['file_path'] == 'current.md'
+    assert result['contracts'][0]['active'] is True
+    assert result['truncated'] is True

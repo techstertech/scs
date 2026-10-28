@@ -988,6 +988,8 @@ class SCSServiceRoutes:
     ) -> dict[str, object]:
         return {
             "file_paths": file_paths,
+            "available": False,
+            "degraded_reason": "index_unavailable",
             "affected_node_ids": [],
             "dependents": [],
             "test_dependents": [],
