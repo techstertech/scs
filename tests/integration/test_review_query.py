@@ -55,3 +55,34 @@ async def test_changed_range_contracts_and_coverage_share_one_investigation(tmp_
     assert result['investigation']['dependents']['evidence_count'] == 2
     assert result['investigation']['tests']['status'] == 'assessed'
     assert result['investigation']['references']['status'] == 'not_assessed'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('declarations', [1, 21])
+async def test_symbol_resolution_only_is_bounded_and_never_traverses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, declarations: int,
+) -> None:
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    graph = NativeGraph(
+        database_path=tmp_path / 'graph.db', vector_path=tmp_path / 'vectors.usearch',
+        provider_metadata_path=tmp_path / 'provider.json',
+        provider=ProviderMetadata('test', 'structural', 2, False, 'not used'),
+    )
+    repo_id = graph.get_or_create_repo_sync(str(repo))
+    graph.batch_upsert_nodes_sync([
+        {'id': f'parse-{index}', 'type': 'function', 'name': 'parse', 'repo_id': repo_id,
+         'metadata': {'file_path': f'module_{index}.py'}}
+        for index in range(declarations)
+    ])
+    monkeypatch.setattr(NativeGraph, 'traverse_sync', lambda *_args, **_kwargs: pytest.fail('resolution traversed dependencies'))
+    routes = SCSServiceRoutes(
+        graph=lambda: graph, jobs=lambda: pytest.fail('resolution opened jobs'),
+        embeddings=lambda: cast(EmbeddingProvider, object()),
+    )
+
+    result = await routes.related({'repo_path': str(repo), 'symbol_name': 'parse', 'resolve_only': True})
+
+    assert len(result['matches']) == min(declarations, 20)
+    assert result['matches_truncated'] is (declarations > 20)
+    assert result['related'] == []

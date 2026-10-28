@@ -227,11 +227,12 @@ async def test_contract_evidence_is_returned_with_source_status(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
-async def test_missing_reference_anchor_is_grounded_before_traversal(tmp_path: Path) -> None:
+@pytest.mark.parametrize("goal", ["Find callers of parse", "Which code references parse?"])
+async def test_missing_reference_anchor_is_grounded_before_traversal(tmp_path: Path, goal: str) -> None:
     routes = FakeRoutes()
     query = QueryOrchestrator(provider=FixedProvider(Playbook.DISCOVER), call=routes.call)
 
-    result = await query.query({'goal': 'Find callers of parse', 'repo_path': str(tmp_path)})
+    result = await query.query({'goal': goal, 'repo_path': str(tmp_path)})
 
     assert routes.calls[0][0] == 'knowledge.search'
     assert all(params['node_id'] == 'node-1' for method, params in routes.calls if method == 'knowledge.related')
@@ -279,6 +280,9 @@ async def test_unreliable_discovery_never_becomes_a_reference_anchor(tmp_path: P
     class UnreliableRoutes(FakeRoutes):
         async def call(self, method: str, params: dict[str, object]) -> dict[str, object]:
             self.calls.append((method, params))
+            if method == 'knowledge.related':
+                assert params['resolve_only'] is True
+                return {'matches': [], 'matches_truncated': failure == 'full_page'}
             assert method == 'knowledge.search'
             nodes = [{'id': 'node', 'name': 'parse', 'type': 'function',
                       'file_path': '../outside.py' if failure == 'unsafe' else 'parser.py'}]
@@ -293,7 +297,7 @@ async def test_unreliable_discovery_never_becomes_a_reference_anchor(tmp_path: P
     result = await query.query({'goal': 'Find references to parse', 'repo_path': str(tmp_path)})
     assert result['complete'] is False
     assert result['routing']['anchor_resolution']['status'] != 'resolved'
-    assert len(routes.calls) == 1
+    assert len(routes.calls) == (1 if failure == 'partial' else 2)
 
 
 @pytest.mark.asyncio
@@ -358,3 +362,89 @@ async def test_execution_deadline_marks_interrupted_reference_stage_unavailable(
     assert result['truncated'] is True
     assert result['investigation']['references']['status'] == 'unavailable'
     assert 'execution' in result['degraded_stages']
+
+
+@pytest.mark.asyncio
+async def test_full_search_page_verifies_unique_exact_symbol_without_traversal(tmp_path: Path) -> None:
+    class FullPageRoutes(FakeRoutes):
+        async def call(self, method: str, params: dict[str, object]) -> dict[str, object]:
+            self.calls.append((method, params))
+            seed = {'id': 'parse', 'type': 'function', 'name': 'parse', 'file_path': 'parser.py'}
+            if method == 'knowledge.search':
+                return {'results': [seed, *[
+                    {'id': f'other-{index}', 'type': 'function', 'name': f'other_{index}', 'file_path': 'other.py'}
+                    for index in range(9)
+                ]]}
+            if params.get('resolve_only'):
+                assert params['symbol_name'] == 'parse'
+                return {'matches': [seed], 'related': [], 'matches_truncated': False}
+            assert params['node_id'] == 'parse'
+            return {'matches': [seed], 'related': []}
+
+    routes = FullPageRoutes()
+    query = QueryOrchestrator(provider=FixedProvider(Playbook.DISCOVER), call=routes.call)
+    result = await query.query({'goal': 'Find references to parse', 'repo_path': str(tmp_path)})
+
+    assert result['routing']['playbook'] == 'REFERENCES'
+    assert result['routing']['anchor_resolution']['status'] == 'resolved'
+    assert any(params.get('resolve_only') for _, params in routes.calls)
+
+
+@pytest.mark.asyncio
+async def test_broad_understanding_keeps_ranked_graph_exploration(tmp_path: Path) -> None:
+    class ExplorationRoutes(FakeRoutes):
+        async def call(self, method: str, params: dict[str, object]) -> dict[str, object]:
+            self.calls.append((method, params))
+            if method == 'knowledge.search':
+                return {'results': [{'id': f'context-{index}', 'type': 'method', 'name': 'search', 'file_path': f'{index}.py'} for index in range(10)]}
+            assert method == 'knowledge.related' and params['node_id'] == 'context-0'
+            assert not params.get('resolve_only')
+            return {'matches': [], 'related': []}
+
+    routes = ExplorationRoutes()
+    query = QueryOrchestrator(provider=FixedProvider(Playbook.UNDERSTAND), call=routes.call)
+    result = await query.query({'goal': 'Understand how search combines candidates', 'repo_path': str(tmp_path)})
+
+    assert result['complete'] is True
+    assert [method for method, _ in routes.calls] == ['knowledge.search', 'knowledge.related']
+
+
+@pytest.mark.asyncio
+async def test_explicit_reference_name_survives_mixed_search_ranking(tmp_path: Path) -> None:
+    class ExplicitRoutes(FakeRoutes):
+        async def call(self, method: str, params: dict[str, object]) -> dict[str, object]:
+            self.calls.append((method, params))
+            if method == 'knowledge.search':
+                return {'results': [{'id': 'other', 'type': 'function', 'name': 'unrelated', 'file_path': 'other.py'}]}
+            if params.get('resolve_only'):
+                assert params['symbol_name'] == 'parse'
+                return {'matches': [{'id': 'parse', 'type': 'function', 'name': 'parse', 'file_path': 'parser.py'}], 'matches_truncated': False}
+            assert params['node_id'] == 'parse'
+            return {'matches': [], 'related': []}
+
+    routes = ExplicitRoutes()
+    query = QueryOrchestrator(provider=FixedProvider(Playbook.DISCOVER), call=routes.call)
+    result = await query.query({'goal': 'Find references to parse without a supplied anchor', 'repo_path': str(tmp_path)})
+
+    assert result['routing']['playbook'] == 'REFERENCES'
+    assert result['routing']['anchor_resolution']['status'] == 'resolved'
+    assert result['complete'] is True
+    assert any(params.get('resolve_only') for _, params in routes.calls)
+
+
+@pytest.mark.asyncio
+async def test_incomplete_exact_lookup_cannot_override_a_short_search_page(tmp_path: Path) -> None:
+    class IncompleteLookupRoutes(FakeRoutes):
+        async def call(self, method: str, params: dict[str, object]) -> dict[str, object]:
+            self.calls.append((method, params))
+            if method == 'knowledge.search':
+                return {'results': [{'id': 'other', 'name': 'other', 'type': 'function', 'file_path': 'other.py'}]}
+            assert params.get('resolve_only') is True
+            return {'matches': [{'id': 'parse', 'name': 'parse', 'type': 'function', 'file_path': 'parser.py'}],
+                    'matches_truncated': True}
+
+    routes = IncompleteLookupRoutes()
+    query = QueryOrchestrator(provider=FixedProvider(Playbook.DISCOVER), call=routes.call)
+    result = await query.query({'goal': 'Find references to parse', 'repo_path': str(tmp_path)})
+    assert result['routing']['anchor_resolution']['status'] != 'resolved'
+    assert len(routes.calls) == 2

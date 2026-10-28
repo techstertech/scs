@@ -58,7 +58,11 @@ REFERENCE_RELATIONSHIPS = (
 )
 
 
-REFERENCE_GOAL = re.compile(r"\b(references to|callers of|call sites|usages of|incoming references)\b", re.I)
+REFERENCE_GOAL = re.compile(r"\b(references to|callers of|call sites|usages of|incoming references|which code references)\b", re.I)
+REFERENCE_NAME = re.compile(
+    r"\b(?:references to|callers of|usages of|which code references)\s+`?([A-Za-z_]\w*(?:\.\w+)*)", re.I,
+)
+REFERENCE_NAME_STOP_WORDS = frozenset({"a", "an", "the", "this", "that"})
 IMPACT_GOAL = re.compile(r"\b(affected (?:tests|dependents|consumers)|impact of|dependents of|tests affected)\b", re.I)
 
 
@@ -243,7 +247,7 @@ class QueryOrchestrator:
                     response.get(key) is True
                     for key in (
                         "nodes_truncated", "edges_truncated",
-                        "dependents_truncated", "test_targets_truncated",
+                        "dependents_truncated", "test_targets_truncated", "matches_truncated",
                     )
                 )
                 truncated = truncated or was_truncated or timed_out
@@ -300,34 +304,62 @@ class QueryOrchestrator:
 
         async def resolve(seeds: list[dict[str, object]], *, files: bool) -> bool:
             nonlocal anchor_resolution
-            candidates: dict[str, dict[str, object]] = {}
-            for seed in seeds:
-                path = self._file_path(seed)
-                if not isinstance(path, str):
-                    continue
-                try:
-                    relative = Path(validated_source_path(path, request.repo_path, require_file=False)).relative_to(request.repo_path).as_posix()
-                except ValueError:
-                    continue
-                if request.file_paths and relative not in request.file_paths:
-                    continue
-                identity = seed.get("id")
-                if not files and (seed.get("type") not in SYMBOL_NODE_TYPES or not isinstance(identity, str) or not identity):
-                    continue
-                candidates[relative if files else str(identity)] = {**seed, "file_path": relative}
+            def collect(nodes: list[dict[str, object]]) -> dict[str, dict[str, object]]:
+                candidates: dict[str, dict[str, object]] = {}
+                for seed in nodes:
+                    path = self._file_path(seed)
+                    if not isinstance(path, str):
+                        continue
+                    try:
+                        relative = Path(validated_source_path(path, request.repo_path, require_file=False)).relative_to(request.repo_path).as_posix()
+                    except ValueError:
+                        continue
+                    if request.file_paths and relative not in request.file_paths:
+                        continue
+                    identity = seed.get("id")
+                    if not files and (seed.get("type") not in SYMBOL_NODE_TYPES or not isinstance(identity, str) or not identity):
+                        continue
+                    candidates[relative if files else str(identity)] = {**seed, "file_path": relative}
+                return candidates
+
+            candidates = collect(seeds)
             exact = {
                 key: node for key, node in candidates.items()
                 if (name := node.get("file_path" if files else "name"))
                 and re.search(r"(?<![\w/])" + re.escape(str(name)) + r"(?![\w/])", request.goal)
             }
+            requested_name = REFERENCE_NAME.search(request.goal) if not files else None
+            name_hint = requested_name.group(1) if requested_name else None
+            if name_hint and name_hint.casefold() not in REFERENCE_NAME_STOP_WORDS:
+                exact = {key: node for key, node in candidates.items()
+                         if str(node.get("name", "")).casefold() == name_hint.casefold()}
+            else:
+                name_hint = None
             choices = exact or candidates
-            # A full search page cannot establish uniqueness of a symbol candidate.
+            # A mixed search page can be full even when only one declaration matches.
+            # Verify that exact name through the existing symbol owner, without traversal.
             discovery_available = not any(item["stage"] == "search" and (item["status"] != "ok" or item["truncated"]) for item in trace)
-            unambiguous = discovery_available and len(choices) == 1 and (files or len(seeds) < min(request.limit, budget.search_seeds))
+            full_page = len(seeds) >= min(request.limit, budget.search_seeds)
+            scope = "returned_candidates"
+            lookup_complete = False
+            needs_lookup = (len(exact) == 1 and full_page) or (name_hint is not None and not exact)
+            if discovery_available and not files and needs_lookup:
+                name = name_hint or str(next(iter(exact.values()))["name"])
+                lookup = await stage("resolve_lookup", "knowledge.related", {
+                    "repo_path": request.repo_path, "symbol_name": name, "resolve_only": True,
+                })
+                scope = "exact_symbol_lookup"
+                lookup_complete = trace[-1]["status"] == "ok" and not trace[-1]["truncated"]
+                choices = {
+                    key: node for key, node in collect(_objects(lookup.get("matches"))).items()
+                    if str(node.get("name", "")).casefold() == name.casefold()
+                }
+                discovery_available = trace[-1]["status"] == "ok"
+            unambiguous = discovery_available and len(choices) == 1 and (files or (lookup_complete if needs_lookup else not full_page))
             anchor_resolution = {
                 "status": ("unavailable" if not discovery_available else
                            "resolved" if unambiguous else ("ambiguous" if choices else "missing")),
-                "scope": "returned_candidates",
+                "scope": scope,
                 "candidates": [_node_evidence(node, kind="anchor", stage="resolve") for node in choices.values()],
             }
             trace.append({"stage": "resolve", "status": "ok" if unambiguous else "degraded",
@@ -347,9 +379,9 @@ class QueryOrchestrator:
             symbol = request.symbol_name if not identities else None
             if not identities and symbol is None:
                 seeds = await search()
-                if not await resolve(seeds, files=False):
-                    return
-                identities = request.node_ids[:1]
+                # Broad exploration retains its ranked seed. It does not assert
+                # that this seed uniquely identifies a symbol requested by name.
+                identities = [str(seed["id"]) for seed in seeds[:1] if seed.get("id")]
             if not identities and symbol is None:
                 return
             edge_types: tuple[RelationshipType | None, ...] = (

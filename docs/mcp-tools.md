@@ -29,6 +29,9 @@ timings, and `complete`, `truncated`, and `degraded_stages` flags.
 query-angle controls, or pagination. Use the SCSWire service routes for
 callers that need those lower-level responses. Run `just eval-query` to compare
 the unified tool with versioned internal-route sequences on this repository.
+The v4 suite preserves v3 relevance judgments and baseline steps; its unanchored
+reference case now expects grounded REFERENCES execution. Historical suites remain
+unchanged.
 
 The `IMPACT` playbook uses bounded incoming dependency analysis and includes
 test-file targets backed by direct dependency edges.
@@ -55,8 +58,10 @@ No new index format or dependency is required.
 Explicit goals such as "Find references to parse", "Find callers of parse", and
 "Find affected dependents of parse" select the corresponding bounded investigation.
 If its required anchor is absent, one discovery stage resolves a unique candidate.
-Duplicate symbols, unavailable discovery, and full candidate pages cannot silently
-select a first symbol. `routing.anchor_resolution` exposes candidates, status,
+Duplicate symbols and unavailable discovery cannot silently select a first symbol.
+A full mixed search page uses a bounded exact-name lookup without graph traversal
+before deciding uniqueness. Explicit reference identifiers survive search ranking.
+Broad exploration retains its ranked context seed without claiming name uniqueness. `routing.anchor_resolution` exposes candidates, status,
 and its scope. It describes returned candidates, not global name uniqueness.
 Grounding retains one classifier call and the existing mode deadline.
 

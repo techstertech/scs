@@ -60,6 +60,7 @@ TRAVERSAL_DIRECTION_ALIASES = {
 DEFAULT_DEPENDENT_LIMIT = 200
 DEFAULT_TEST_TARGET_LIMIT = 50
 MAX_REGRESSION_RISK_LIMIT = 1_000
+SYMBOL_RESOLUTION_LIMIT = 20
 
 
 def _elapsed_ms(started: float) -> float:
@@ -594,6 +595,10 @@ class SCSServiceRoutes:
             await asyncio.sleep(min(JOB_WAIT_POLL_SECONDS, remaining))
 
     async def related(self, params: dict[str, object]) -> dict[str, object]:
+        resolve_only = params.get("resolve_only", False)
+        if type(resolve_only) is not bool:
+            raise ValueError("resolve_only must be a boolean")
+        matches_truncated = False
         symbol = _string(params, "symbol_name")
         node_id = _string(params, "node_id")
         if (symbol is None) == (node_id is None):
@@ -601,7 +606,7 @@ class SCSServiceRoutes:
         repo_path = params.get("repo_path")
         graph = self._read_graph(repo_path)
         if graph is None:
-            return {"symbol_name": symbol, "node_id": node_id, "matches": [], "related": []}
+            return {"symbol_name": symbol, "node_id": node_id, "matches": [], "related": [], "available": False}
         repo_id = self._repo_id(repo_path)
         direction = _traversal_direction(params, default="outgoing")
         if repo_path is not None and repo_id is None:
@@ -621,7 +626,7 @@ class SCSServiceRoutes:
                         graph.search_by_name_sync,
                         symbol,
                         node_type=node_type,
-                        limit=20,
+                        limit=SYMBOL_RESOLUTION_LIMIT + int(resolve_only),
                         repo_id=repo_id,
                     )
                     for node_type in SYMBOL_NODE_TYPES
@@ -637,7 +642,17 @@ class SCSServiceRoutes:
             exact_matches = [
                 node for node in matches if node.name.casefold() == symbol.casefold()
             ]
-            matches = (exact_matches or matches)[:20]
+            selected_matches = exact_matches or matches
+            matches_truncated = len(selected_matches) > SYMBOL_RESOLUTION_LIMIT or (
+                resolve_only and any(len(nodes) > SYMBOL_RESOLUTION_LIMIT for nodes in matches_by_type)
+            )
+            matches = selected_matches[:SYMBOL_RESOLUTION_LIMIT]
+        if resolve_only:
+            return {
+                "symbol_name": symbol, "node_id": node_id,
+                "matches": [_node_dict(node) for node in matches], "related": [],
+                "matches_truncated": matches_truncated,
+            }
         if not matches:
             return {
                 "symbol_name": symbol,
