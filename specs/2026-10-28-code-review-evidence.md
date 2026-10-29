@@ -9,8 +9,8 @@ supersedes:
   - specs/2026-09-22-unified-query-orchestration.md (additive review inputs and evidence only)
 superseded-by:
 implementation:
-  commits: [0acfc16, ec4e558, ebab3e2]
-  final-unit: investigation coverage (commit containing this sign-off)
+  commits: [0acfc16, ec4e558, ebab3e2, 21b9d4a, 8ae48c5]
+  release: v0.3.0
 ---
 
 # Code review evidence
@@ -137,10 +137,19 @@ No new dependency or persisted-format change was needed.
 Review order: `docs/mcp-tools.md`, `services/impact.py`, `services/contracts.py`,
 `orchestration/query.py`, `orchestration/coverage.py`, then the combined service
 test. Rollback can revert the four implementation commits in reverse order;
-no data migration is required. The running SCS daemon was not restarted.
-Live-model relevance evaluation and production activation were not performed.
+no data migration is required. At implementation sign-off, daemon restart,
+live-model relevance evaluation, and public activation remained for release work.
 Static evidence remains bounded to the indexed source and configured traversal.
 
 Final Python result: 468 passed in 30.70s.
 Coverage summary: `TOTAL                                               6192    573   1578    323  87.70%`.
 Rust result: 108 tests passed (2 core, 96 parser, 10 store).
+
+## Release verification
+
+[The 0.3.0 release sign-off](2026-10-28-release-0.3.0.md) records the subsequent
+grounding corrections, fresh-index relevance gates, full local and hosted checks,
+signed tag, artifact integrity, public installation, and live MCP validation.
+The installed public release passed all ten manual scenarios. Configuration and
+all 23 existing project/store identities were preserved. Existing MCP clients
+must reconnect to receive the additive input schema.
