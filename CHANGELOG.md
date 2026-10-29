@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- docs: clarify decision configuration upgrade order and disposable installer isolation
+
 ## 0.4.0 - 2026-10-28
 
 - **Breaking (configuration):** replace the old decision-model selector with the

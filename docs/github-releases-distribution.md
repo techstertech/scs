@@ -185,6 +185,12 @@ uninstall.
    and publishes the stable release.
 7. Verify an installation from the release page on disposable hosts.
 
+For a disposable local installation, set `UV_TOOL_DIR` and `UV_TOOL_BIN_DIR`, and
+exclude any existing `scs` launcher from that process's `PATH`. The installer
+stops the `scs` found on `PATH` before replacement; directory overrides alone
+do not isolate that shutdown. Keep the selected `uv` executable available and
+check the new launcher by its absolute path.
+
 The workflow uses least-privilege job permissions. Only the final publish job
 receives `contents: write`, `id-token: write`, and `attestations: write`. Every
 third-party action is pinned to a full commit SHA.

@@ -85,7 +85,12 @@ only one fixed SCS playbook; it cannot name tools, files, or execution steps.
 
 ## Migration
 
-Replace the former model-specific selector with the service's exact model ID.
-Deploy support for model-qualified readiness before updating the SCS client and
-configuration. Endpoints that ignore `model` and return an old compatibility
-identity fail readiness for a different configured identity.
+Before upgrading SCS, deploy model-qualified readiness at the decision service.
+When upgrading an existing client, install the new SCS version before writing
+the new model ID. Keep the old selector or use `disabled` during installation.
+The installer uses the old client to stop its daemon, and that client rejects
+new configuration values. After installation, replace the selector with the
+service's exact model identity and start or restart SCS.
+
+Endpoints that ignore `model` and return an old compatibility identity fail
+readiness for a different configured identity.
