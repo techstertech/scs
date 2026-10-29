@@ -192,6 +192,31 @@ third-party action is pinned to a full commit SHA.
 Both SCS and its immutable Git dependency TSG must remain publicly readable so
 clean GitHub-hosted runners and source consumers can resolve the release.
 
+## Manual review smoke checks
+
+Run `just smoke-review` to exercise a fresh stdio MCP client against the current
+checkout command. Use `just smoke-review /absolute/path/to/scs /tmp/review-report.json`
+to check a packaged installation. The client Python environment needs the MCP
+runtime dependency. No test-only dependency is required by the script itself.
+
+The command creates source fixtures, indexes them through the selected daemon,
+checks dependency paths, contract lifecycle, unique and ambiguous references,
+coverage states, validation, and source preservation, then removes its fixture
+index and files. It never deletes an existing repository's index. The script
+uses the command's normal SCS configuration and may start its daemon lazily.
+It does not restart a running daemon; restart the selected executable first
+when validating a new build. Closing the final MCP lease can stop an idle daemon.
+
+Run the command after indexing and other model-heavy work finishes. A provider
+timeout fails the smoke gate rather than being treated as a successful run.
+The output JSON is replaced on every invocation; failures record `passed: false`
+and return nonzero, so an earlier success cannot satisfy a later gate.
+
+Finish source edits before long relevance indexing. Use an immutable commit or
+snapshot for evaluation, and rerun when a source-change guard invalidates it.
+A fresh isolated index can distinguish missing old index edges from a code defect;
+do not reset user indexes merely to obtain a passing result.
+
 ## Incident response
 
 Do not replace a published asset. Stop recommending the affected version,

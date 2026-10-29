@@ -47,3 +47,7 @@ install version="":
     scripts/install.sh --version "$version"
 
 alias upgrade := install
+
+# Exercise review features through fresh stdio MCP; enroll and remove one fixture.
+smoke-review command=".venv/bin/scs" output="/tmp/scs-review-smoke.json":
+    uv run python scripts/smoke-review.py --command "{{command}}" --output "{{output}}"
