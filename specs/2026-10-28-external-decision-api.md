@@ -1,5 +1,5 @@
 ---
-status: validating
+status: shipped
 project: scs
 project-root: /Users/leonardo/Repositories/scs
 created: 2026-10-28
@@ -9,7 +9,7 @@ decision: decisions/2026-09-25-use-external-laya-inference.md
 supersedes: specs/2026-09-25-consume-external-laya-inference.md
 superseded-by:
 implementation:
-  commits: []
+  commits: [1fadf58]
   pull-request:
 ---
 
@@ -122,7 +122,28 @@ readiness before implementation.
 - **Passed:** source review found no model-specific decision names or pinned
   decision model in active SCS code, public documentation, tests, or scripts.
   Existing historical specs, decisions, and evaluation reports retain evidence.
-- **Pending:** MES activation, installed SCS update, local configuration migration,
-  model-qualified live readiness, and a fresh SCS query.
+- **Passed:** MES activation through its existing per-user LaunchAgent retained
+  its program, working directory, and model settings. Main MES health returned
+  `READY`. Model-qualified readiness returned the configured model identity;
+  an unsupported model returned HTTP 400. Unqualified readiness retained its
+  exact legacy response.
+- **Passed:** a locally built wheel contains the generic client and excludes the
+  retired provider module. The installed SCS tool uses the tested locked runtime
+  dependencies. `scs doctor` reported the installed daemon ready.
+- **Passed:** local configuration now selects the external service's actual
+  model identity. All other values and mode `0600` were preserved. A private
+  external-volume backup passed checksum and configuration-restoration checks.
+- **Passed:** explicit indexing used repository-relative changed/deleted paths.
+  A fresh installed stdio MCP query returned `provider = external`, the configured
+  model, complete evidence, no degraded stages, and no fallback. A balanced
+  request with `limit = 50` completed in 251 ms, including 215 ms classification.
+  The default evidence limit can still produce ordinary bounded truncation.
+- **Passed:** Cortex's web engine and terminal runtime retained their process
+  identities throughout activation. No unrelated workload was restarted.
+
+Acceptance criteria 1–6 passed. MES's implementation is commit `060fce2` in the
+sibling repository. The MES focused suite reported existing UV prerelease-mode,
+SWIG, and Starlette/httpx warnings. No audio generation, paid API call, or broad
+MES suite was required or run for this decision-only change.
 
 No production dependency, index format, or core-service change was required.
