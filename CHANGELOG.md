@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.0 - 2026-10-28
+
+- fix(query): verify exact names on full search pages and preserve broad exploration
+
 - feat(query): report assessed, empty, partial, unavailable, and unassessed review aspects
 
 - feat(query): resolve missing investigation anchors without guessing ambiguous symbols
