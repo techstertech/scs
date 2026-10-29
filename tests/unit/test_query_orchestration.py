@@ -7,7 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from scs.orchestration.decision import Playbook, RoutingDecision, RoutingRequest
+from scs.orchestration.decision import (
+    DeterministicDecisionProvider,
+    Playbook,
+    RoutingDecision,
+    RoutingRequest,
+)
 from scs.orchestration.query import QueryOrchestrator
 
 
@@ -85,12 +90,43 @@ async def test_each_playbook_uses_only_its_fixed_routes(
     result = await query.query({"goal": "find parser", "repo_path": str(tmp_path), **anchors})
 
     assert result["routing"]["playbook"] == playbook.value
+    assert result["routing"]["provider"] == "external"
+    assert result["routing"]["model"] == "test-provider"
     assert provider.calls == 1
     assert expected_route in [method for method, _params in routes.calls]
     assert result["trace"]
     assert set(result["evidence"]) >= {
         "symbols", "files", "relationships", "references", "test_targets"
     }
+
+
+@pytest.mark.asyncio
+async def test_deterministic_routing_reports_its_provider(tmp_path: Path) -> None:
+    query = QueryOrchestrator(
+        provider=DeterministicDecisionProvider(), call=FakeRoutes().call
+    )
+
+    result = await query.query({"goal": "find parser", "repo_path": str(tmp_path)})
+
+    assert result["routing"]["provider"] == "deterministic"
+    assert result["routing"]["fallback_applied"] is False
+
+
+@pytest.mark.asyncio
+async def test_failed_external_classifier_reports_deterministic_fallback(
+    tmp_path: Path,
+) -> None:
+    class FailingProvider:
+        async def classify(self, request: RoutingRequest) -> RoutingDecision:
+            raise RuntimeError("decision service unavailable")
+
+    query = QueryOrchestrator(provider=FailingProvider(), call=FakeRoutes().call)
+
+    result = await query.query({"goal": "find parser", "repo_path": str(tmp_path)})
+
+    assert result["routing"]["provider"] == "deterministic"
+    assert result["routing"]["model"] == "deterministic-v1"
+    assert result["routing"]["degraded_reason"] == "classifier_unavailable"
 
 
 @pytest.mark.asyncio

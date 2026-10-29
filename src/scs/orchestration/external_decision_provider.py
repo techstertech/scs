@@ -1,4 +1,4 @@
-"""Strict HTTP client for an external Laya choice service."""
+"""Strict HTTP client for an external decision service."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import http.client
 import json
 from time import monotonic
 from typing import ClassVar, Final, cast
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -20,9 +20,6 @@ from scs.orchestration.decision import (
     eligible_playbooks,
 )
 
-MODEL_REPOSITORY: Final[str] = "aac6fef/laya-mlx"
-MODEL_REVISION: Final[str] = "20aed815fc6acde75733882e7ec0e3f28aeb9717"
-MODEL_ID: Final[str] = f"{MODEL_REPOSITORY}@{MODEL_REVISION}"
 QUESTION: Final[str] = (
     "Select the single best available code investigation workflow for this goal. "
     "Only explicit state fields count as anchors; when a goal lacks required "
@@ -44,19 +41,23 @@ class ChoiceResponse(BaseModel):
     probabilities: dict[str, float]
 
 
-class LayaDecisionProvider:
+class ExternalDecisionProvider:
     """Require a healthy choice endpoint throughout daemon lifetime."""
 
     def __init__(
         self,
         base_url: str,
         *,
+        model: str,
         max_concurrency: int = 1,
         on_unavailable: Callable[[], None] | None = None,
     ) -> None:
         if not 1 <= max_concurrency <= 4:
-            raise ValueError("Laya concurrency must be between one and four")
+            raise ValueError("decision concurrency must be between one and four")
+
+        self._model: str = model
         self._base_url: str = base_url.rstrip("/")
+        self._ready_route: str = f"/decisions/ready?{urlencode({"model": model})}"
         self._semaphore: asyncio.Semaphore = asyncio.Semaphore(max_concurrency)
         self._ready: bool = False
         self._closed: bool = False
@@ -92,16 +93,16 @@ class LayaDecisionProvider:
 
     async def _probe(self) -> bool:
         try:
-            payload = await asyncio.to_thread(self._request, "GET", "/decisions/ready")
-            return payload == {"status": "ok", "model": MODEL_ID}
+            payload = await asyncio.to_thread(self._request, "GET", self._ready_route)
+            return payload == {"status": "ok", "model": self._model}
         except (OSError, ValueError, RuntimeError, http.client.HTTPException):
             return False
 
     async def start(self) -> None:
         if self._closed:
-            raise RuntimeError("Laya decision provider is closed")
+            raise RuntimeError("external decision provider is closed")
         if not await self._probe():
-            raise RuntimeError("Laya decision service is unavailable or incompatible")
+            raise RuntimeError("external decision service is unavailable or incompatible")
         self._ready = True
         self._monitor = asyncio.create_task(self._watch_health())
 
@@ -118,7 +119,7 @@ class LayaDecisionProvider:
             else:
                 unavailable_since = unavailable_since or monotonic()
                 if monotonic() - unavailable_since >= RECOVERY_TIMEOUT_SECONDS:
-                    self._terminal_error = RuntimeError("Laya service recovery failed")
+                    self._terminal_error = RuntimeError("decision service recovery failed")
                     async with self._condition:
                         self._condition.notify_all()
                     if self._on_unavailable is not None:
@@ -131,17 +132,17 @@ class LayaDecisionProvider:
                 lambda: self.is_ready or self._terminal_error is not None or self._closed
             )
         if self._terminal_error is not None:
-            raise RuntimeError("Laya service recovery failed") from self._terminal_error
+            raise RuntimeError("decision service recovery failed") from self._terminal_error
         if self._closed:
-            raise RuntimeError("Laya decision provider is closed")
+            raise RuntimeError("external decision provider is closed")
 
     async def classify(self, request: RoutingRequest) -> RoutingDecision:
         if not self.is_ready:
-            raise RuntimeError("Laya decision service is unavailable")
+            raise RuntimeError("external decision service is unavailable")
         available = eligible_playbooks(request)
 
         payload: dict[str, object] = {
-            "model": MODEL_ID,
+            "model": self._model,
             "state": request.model_dump(exclude_none=True),
             "question": {
                 "key": "playbook",
@@ -156,12 +157,12 @@ class LayaDecisionProvider:
         async with self._semaphore:
             raw = await asyncio.to_thread(self._request, "POST", "/decisions", payload)
         response = ChoiceResponse.model_validate(raw)
-        if response.model != MODEL_ID:
-            raise ValueError("Laya model identity differs from configuration")
+        if response.model != self._model:
+            raise ValueError("decision model identity differs from configuration")
         if set(response.probabilities) != {playbook.value for playbook in available}:
-            raise ValueError("Laya probabilities are incomplete")
+            raise ValueError("decision probabilities are incomplete")
         if Playbook(response.choice) not in available:
-            raise ValueError("Laya selected an unavailable playbook")
+            raise ValueError("decision service selected an unavailable playbook")
         return RoutingDecision(
             playbook=Playbook(response.choice),
             model=response.model,

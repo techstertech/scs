@@ -73,12 +73,14 @@ analysis ran. `assessed` describes static evidence, not correctness or execution
 coverage. Existing `complete` still describes the bounded playbook. Unavailable
 reference providers and missing impact indexes cannot masquerade as empty success.
 
-When configured, the Laya choice service receives only the goal, explicit anchors,
+When configured, the external decision service receives only the goal, explicit anchors,
 and SCS playbook choices. A configured daemon reports ready after the service confirms
-the pinned model is warm. It waits through short outages and shuts down if
+the configured model is ready. It waits through short outages and shuts down if
 recovery fails. An inference failure during a query returns deterministic
-discovery evidence with a degradation reason. Missing or invalid model
-files prevent SCS daemon startup.
+discovery evidence with a degradation reason. An unavailable or mismatched external model prevents SCS daemon startup.
+`routing.provider` is `external` for service decisions and `deterministic` for
+disabled routing or classifier fallback. `routing.model` retains the actual
+requested model identity; the provider is never inferred from the model name.
 
 The seven former read tools are now internal service routes. Existing MCP
 callers must use `query_code`; the [migration guide](query-code-migration.md)

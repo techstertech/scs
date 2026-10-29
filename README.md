@@ -13,9 +13,9 @@ CLI, MCP, or client request, and never changes repository source.
 - Stable releases support Apple Silicon macOS and x86-64 Linux with CPython 3.14.
 - Indexing needs an embedding provider. The default uses the OpenAI embeddings
   API and sends source-derived entity text to it. Local providers are available.
-- Laya is an optional external classifier for choosing query playbooks.
-  SCS works without it on both supported platforms. A compatible Laya server
-  needs Apple Silicon and sufficient memory; see [Laya routing](#optional-laya-routing).
+- An optional external decision API can choose query playbooks.
+  SCS works without it on both supported platforms and never runs a decision
+  model. See [external decision routing](#optional-external-decision-routing).
 
 ## Quick start
 
@@ -91,7 +91,7 @@ agent goal + repository + optional anchors
         validate request and paths
                  |
                  v
-     select one of seven playbooks  <--- optional Laya choice API
+     select one of seven playbooks  <--- optional external decision API
                  |
                  v
      bounded index search and graph reads
@@ -132,36 +132,36 @@ summarization service. You can instead configure a local OpenAI-compatible
 server or an in-process MLX provider. Provider details and trust controls
 are in [embedding configuration](docs/configuration.md).
 
-## Optional Laya routing
+## Optional external decision routing
 
-An external service can serve Laya on Apple Silicon to choose one of SCS's
-bounded query playbooks. SCS calls its configured choice API with the goal, explicit
-anchors, and its playbook choices. It sends no repository source, embeddings,
-or retrieved evidence. SCS performs the search and graph reads. Without Laya,
+A compatible external service can choose one of SCS's bounded query playbooks.
+SCS sends the goal, explicit anchors, and playbook choices to its configured
+HTTP API. It sends no repository source, embeddings, or retrieved evidence.
+SCS performs the search and graph reads. Without a configured decision model,
 routing follows deterministic rules.
 
-**Resource example:** On one Apple Silicon Mac, the pinned model bundle
-occupied about 807 MB on disk, and a warmed Laya worker measured about
-5.2 GB of physical memory footprint on 2026-09-24. This is one observed
-measurement, not a fixed minimum; usage can vary by host and workload.
-The model runs in the external service, so that memory is outside SCS. Laya is
-disabled unless explicitly configured.
-
-After starting a compatible Laya choice service, set its endpoint in
-`~/.scs/config.toml`:
+After starting a compatible service, set its endpoint and exact model identity
+in `~/.scs/config.toml`:
 
 ```toml
-decision_model = "laya"
+decision_model = "your-provider/decision-model@revision"
 decision_base_url = "http://127.0.0.1:10000/v1"
 ```
 
-The [choice API contract](docs/decision-api.md) lets another service provide
-Laya without depending on a specific serving product.
+The model identity belongs to the service. SCS contains no built-in decision
+checkpoint or model aliases. Omit `decision_model` to disable external routing;
+`decision_model = "disabled"` remains supported. Older model-specific
+configurations must replace their selector with the service's exact model ID.
 
-Then restart SCS with `scs daemon restart`. A configured daemon reports ready
-only after the service has loaded and warmed the pinned model. If it is unavailable,
-SCS startup fails. An inference failure during a query reports degradation
-and uses deterministic routing. SCS installs no Laya weights or MLX runtime.
+Then restart SCS with `scs daemon restart`. SCS requests readiness for the
+configured model and requires an exact identity match before publishing its
+socket. An unavailable or incompatible service prevents startup. An inference
+failure during a query reports degradation and uses deterministic routing.
+
+The [decision API contract](docs/decision-api.md) defines readiness and choice
+validation. `routing.provider` reports `external` or `deterministic`, while
+`routing.model` reports the selected model identity. The external service owns
+model installation, warmup, runtime, and memory use.
 
 ## Operations and development
 

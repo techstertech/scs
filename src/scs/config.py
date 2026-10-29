@@ -62,7 +62,7 @@ class SCSSettings(BaseSettings):
     openai_compatible_base_url: str = DEFAULT_OPENAI_COMPATIBLE_BASE_URL
     openai_compatible_trusted_hosts: list[str] = Field(default_factory=list)
     reranking_model: str | None = None
-    decision_model: Literal["disabled", "laya"] = "disabled"
+    decision_model: str | None = Field(default=None, min_length=1, max_length=256)
     decision_base_url: str = DEFAULT_DECISION_BASE_URL
     decision_trusted_hosts: list[str] = Field(default_factory=list)
     decision_timeout_seconds: float = Field(default=0.5, gt=0, le=1.0)
@@ -182,6 +182,24 @@ class SCSSettings(BaseSettings):
                     f"{field} must use a loopback host or an exact trusted host"
                 )
         return self
+
+    @field_validator("decision_model")
+    @classmethod
+    def _validate_decision_model(cls, value: str | None) -> str | None:
+        """Select an external model while retaining the existing disable marker.
+
+        Model identities belong to the configured service. SCS does not map
+        model names to checkpoints or inference implementations.
+        """
+
+        if value is None or value == "disabled":
+            return None
+
+        model = value.strip()
+        if not model:
+            raise ValueError("decision model cannot be blank")
+
+        return model
 
     @field_validator("reranking_model")
     @classmethod

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- refactor: configure external decision models and verify model-qualified readiness
+
 ## 0.3.0 - 2026-10-28
 
 - fix(query): verify exact names on full search pages and preserve broad exploration

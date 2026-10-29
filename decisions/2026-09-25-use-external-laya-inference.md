@@ -3,19 +3,24 @@ status: accepted
 project: scs
 project-root: /Users/leonardo/Repositories/scs
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-10-28
 supersedes:
   - decisions/2026-09-23-use-native-mlx-for-query-routing.md (runtime ownership only)
   - decisions/2026-09-23-gate-daemon-readiness-on-classifier.md (worker supervision only)
 superseded-by:
 related-specs:
   - specs/2026-09-25-consume-external-laya-inference.md
+  - specs/2026-10-28-external-decision-api.md
 implementation:
   commits: [e3238eb]
   pull-request:
 ---
 
 # Use External Laya Inference
+
+External runtime ownership remains authoritative. The
+[configured external decision API](../specs/2026-10-28-external-decision-api.md)
+replaces the original model-specific selection and readiness identity.
 
 ## Context
 

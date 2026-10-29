@@ -1,4 +1,4 @@
-# Embedding and reranking configuration
+# Provider configuration
 
 Persistent configuration lives at `~/.scs/config.toml`. Explicit Python
 settings take precedence over environment variables, environment variables
@@ -63,24 +63,39 @@ embedding_model = "Qwen3-Embedding-8B-4bit-DWQ"
 embedding_dimension = 4096
 ```
 
-This provider is separate from the optional Laya query classifier. Neither
+This provider is separate from the optional external decision API. Neither
 local provider requires an OpenAI API key.
 
-## Optional query classifier
+## Optional external decisions
 
-Laya is disabled by default. A separate Apple Silicon service owns its runtime
-and pinned bundle. After starting a compatible service as described in the
-[README](../README.md#optional-laya-routing), set:
+External decisions are disabled by default. The external service owns its
+model and runtime. Set the service's exact model identity and endpoint:
 
 ```toml
-decision_model = "laya"
+decision_model = "your-provider/decision-model@revision"
 decision_base_url = "http://127.0.0.1:10000/v1"
 ```
 
+An absent `decision_model` disables external decisions. The existing `disabled`
+value also disables them. Other values select a model at the external service;
+SCS does not translate model names into checkpoints or run decision inference.
+The model identity must contain 1–256 nonblank characters.
+
 For an explicitly trusted remote host, set `decision_trusted_hosts` to a
 list containing its exact hostname. The decision API uses credential-free HTTP
-and sends goals and anchors to that host. SCS verifies the model identity and
-requires model readiness before its daemon becomes ready.
+and sends goals and anchors to that host. SCS verifies the configured model's
+readiness before its daemon becomes ready and validates the model identity in
+every choice response. See [the API contract](decision-api.md).
+
+`decision_timeout_seconds` defaults to 0.5 seconds and can lower each mode's
+classifier deadline. `decision_max_concurrency` defaults to 1 and accepts 1–4.
+The environment equivalents use the `SCS_` prefix, including
+`SCS_DECISION_MODEL` and `SCS_DECISION_BASE_URL`.
+
+When migrating from the former model-specific client, replace the old selector
+with the external service's model identity. The service must implement
+model-qualified readiness; an older endpoint that returns a different identity
+cannot satisfy startup checks. Restart SCS after changing configuration.
 
 ## Reranking
 

@@ -1,21 +1,25 @@
 ---
-status: shipped
+status: superseded
 project: scs
 project-root: /Users/leonardo/Repositories/scs
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-10-28
 owner: code-intelligence
 decision: decisions/2026-09-25-use-external-laya-inference.md
 supersedes:
   - specs/2026-09-23-classifier-daemon-readiness.md (classifier ownership and recovery only)
   - specs/2026-09-22-unified-query-orchestration.md (Laya runtime ownership only)
-superseded-by:
+superseded-by: specs/2026-10-28-external-decision-api.md
 implementation:
   commits: [e3238eb]
   pull-request:
 ---
 
 # Consume External Laya Inference
+
+The [configured external decision API](2026-10-28-external-decision-api.md)
+supersedes this model-specific configuration and identity contract. The
+verification below records the original implementation.
 
 ## Outcome
 

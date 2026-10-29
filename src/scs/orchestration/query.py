@@ -13,7 +13,6 @@ from typing import ClassVar, Literal, TypedDict, cast
 from pydantic import ConfigDict, Field, model_validator
 
 from scs.graph.models import SYMBOL_NODE_TYPES, NodeType, RelationshipType
-from scs.orchestration.laya_provider import MODEL_REPOSITORY
 from scs.orchestration.decision import (
     DecisionProvider,
     DeterministicDecisionProvider,
@@ -574,7 +573,7 @@ class QueryOrchestrator:
                 "requested_mode": request.mode,
                 "anchor_resolution": anchor_resolution,
                 "playbook": selected.value,
-                "provider": "laya" if decision.model.startswith(f"{MODEL_REPOSITORY}@") else "deterministic",
+                "provider": decision.provider.value,
                 "model": decision.model,
                 "confidence": decision.confidence,
                 "probabilities": {key.value: value for key, value in decision.probabilities.items()},

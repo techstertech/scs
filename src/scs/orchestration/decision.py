@@ -22,6 +22,13 @@ class Playbook(StrEnum):
     INVENTORY = "INVENTORY"
 
 
+class DecisionProviderKind(StrEnum):
+    """Identify the decision implementation independently of its model name."""
+
+    EXTERNAL = "external"
+    DETERMINISTIC = "deterministic"
+
+
 PLAYBOOK_DESCRIPTIONS: dict[Playbook, str] = {
     Playbook.DISCOVER: "Find relevant code symbols or files for a broad goal.",
     Playbook.UNDERSTAND: "Explain how code works using search and graph context.",
@@ -70,6 +77,7 @@ class RoutingDecision(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", strict=True)
 
     playbook: Playbook
+    provider: DecisionProviderKind = DecisionProviderKind.EXTERNAL
     model: str = Field(min_length=1, max_length=256)
     confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
     probabilities: dict[Playbook, float]
@@ -119,6 +127,7 @@ class DeterministicDecisionProvider:
         del request
         return RoutingDecision(
             playbook=Playbook.DISCOVER,
+            provider=DecisionProviderKind.DETERMINISTIC,
             model="deterministic-v1",
             confidence=1.0,
             probabilities={

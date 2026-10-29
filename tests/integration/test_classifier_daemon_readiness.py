@@ -12,7 +12,7 @@ import pytest
 
 from scs.config import SCSSettings
 from scs.main import SCSDaemon
-from scs.orchestration.laya_provider import LayaDecisionProvider
+from scs.orchestration.external_decision_provider import ExternalDecisionProvider
 from scs.service import ProcessLock
 from scs.wire.client import SCSClient
 
@@ -26,7 +26,7 @@ def configured_settings(tmp_path: Path) -> Iterator[SCSSettings]:
             runtime_dir=Path(runtime),
             log_dir=tmp_path / "logs",
             embedding_dimension=2,
-            decision_model="laya",
+            decision_model="fixture/decision-model@revision",
         )
 
 
@@ -38,16 +38,18 @@ async def test_daemon_does_not_publish_ready_socket_before_classifier(
     entered = asyncio.Event()
     release = asyncio.Event()
 
-    class SlowProvider(LayaDecisionProvider):
+    class SlowProvider(ExternalDecisionProvider):
         def __init__(
             self,
             base_url: str,
             *,
+            model: str,
             max_concurrency: int = 1,
             on_unavailable: Callable[[], None] | None = None,
         ) -> None:
             super().__init__(
                 base_url,
+                model=model,
                 max_concurrency=max_concurrency,
                 on_unavailable=on_unavailable,
             )
@@ -62,7 +64,7 @@ async def test_daemon_does_not_publish_ready_socket_before_classifier(
         def is_ready(self) -> bool:
             return self.ready
 
-    monkeypatch.setattr("scs.main.LayaDecisionProvider", SlowProvider)
+    monkeypatch.setattr("scs.main.ExternalDecisionProvider", SlowProvider)
     settings = configured_settings
     daemon = SCSDaemon(settings)
     started = asyncio.create_task(daemon.start())
@@ -95,7 +97,7 @@ async def test_failed_classifier_start_releases_daemon_ownership(
     configured_settings: SCSSettings,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class FailingProvider(LayaDecisionProvider):
+    class FailingProvider(ExternalDecisionProvider):
         closed = False
 
         async def start(self) -> None:
@@ -105,7 +107,7 @@ async def test_failed_classifier_start_releases_daemon_ownership(
             self.closed = True
             await super().close()
 
-    monkeypatch.setattr("scs.main.LayaDecisionProvider", FailingProvider)
+    monkeypatch.setattr("scs.main.ExternalDecisionProvider", FailingProvider)
     settings = configured_settings
     daemon = SCSDaemon(settings)
 

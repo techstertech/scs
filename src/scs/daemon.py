@@ -15,7 +15,7 @@ from scs.config import SCSSettings
 from scs.service import ProcessLock
 from scs.wire.client import SCSClient
 
-# Configured classifier startup may use the worker's 30-second handshake budget.
+# Allow storage initialization and the external decision service readiness check.
 DAEMON_START_TIMEOUT_SECONDS = 45.0
 DAEMON_STOP_TIMEOUT_SECONDS = 300.0
 DAEMON_POLL_SECONDS = 0.05
@@ -89,7 +89,7 @@ class DaemonController:
             current = await self.status()
             if current.ready:
                 return current
-            # A live socket can be temporarily unready during worker recovery.
+            # A live socket can be unready during external decision service recovery.
             # Wait for that generation instead of launching a second contender.
             spawned: subprocess.Popen[bytes] | None = None
             if not current.available:

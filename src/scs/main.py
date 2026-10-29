@@ -22,7 +22,7 @@ from scs.indexing.watcher import RepositoryWatcher
 from scs.identity import IdentityPublisher
 from scs.metrics import AggregateMetrics
 from scs.orchestration.decision import DecisionProvider, DeterministicDecisionProvider
-from scs.orchestration.laya_provider import LayaDecisionProvider
+from scs.orchestration.external_decision_provider import ExternalDecisionProvider
 from scs.orchestration.query import QueryOrchestrator
 from scs.providers.base import EmbeddingProvider, RerankingProvider
 from scs.providers.mlx import MLXEmbeddingProvider
@@ -109,12 +109,13 @@ class SCSDaemon:
             reranker=lambda: self._reranker,
         )
         self._decision_provider: DecisionProvider = (
-            LayaDecisionProvider(
+            ExternalDecisionProvider(
                 self.settings.decision_base_url,
+                model=self.settings.decision_model,
                 max_concurrency=self.settings.decision_max_concurrency,
                 on_unavailable=self.request_shutdown,
             )
-            if self.settings.decision_model == "laya"
+            if self.settings.decision_model is not None
             else DeterministicDecisionProvider()
         )
         self._query: QueryOrchestrator = QueryOrchestrator(
@@ -123,7 +124,7 @@ class SCSDaemon:
             classifier_timeout_seconds=self.settings.decision_timeout_seconds,
             wait_until_ready=(
                 self._decision_provider.wait_ready
-                if isinstance(self._decision_provider, LayaDecisionProvider)
+                if isinstance(self._decision_provider, ExternalDecisionProvider)
                 else None
             ),
         )
@@ -173,8 +174,8 @@ class SCSDaemon:
                 )
             reranker = build_reranker(self.settings)
             stores = ProjectStoreRegistry(home=paths.home, provider=embeddings.metadata)
-            if self.settings.decision_model == "laya":
-                assert isinstance(self._decision_provider, LayaDecisionProvider)
+            if self.settings.decision_model is not None:
+                assert isinstance(self._decision_provider, ExternalDecisionProvider)
                 await self._decision_provider.start()
             jobs = await asyncio.to_thread(IngestionJobStore, paths.jobs_database)
             parser = NativeParser()
@@ -324,7 +325,7 @@ class SCSDaemon:
                 await watcher.stop()
             if runner is not None:
                 await runner.stop()
-            if isinstance(self._decision_provider, LayaDecisionProvider):
+            if isinstance(self._decision_provider, ExternalDecisionProvider):
                 await self._decision_provider.close()
             process_lock.release()
             self._server = None
@@ -358,7 +359,7 @@ class SCSDaemon:
         self._runner = None
         if runner is not None:
             await runner.stop()
-        if isinstance(self._decision_provider, LayaDecisionProvider):
+        if isinstance(self._decision_provider, ExternalDecisionProvider):
             await self._decision_provider.close()
         graph = self._graph
         self._graph = None
@@ -435,7 +436,7 @@ class SCSDaemon:
                 "generation": self._generation,
                 "ready": self._started
                 and (
-                    not isinstance(self._decision_provider, LayaDecisionProvider)
+                    not isinstance(self._decision_provider, ExternalDecisionProvider)
                     or self._decision_provider.is_ready
                 ),
                 "protocol_min": 1,
