@@ -2,7 +2,16 @@
 
 ## Unreleased
 
+## 0.4.0 - 2026-10-28
+
+- **Breaking (configuration):** replace the old decision-model selector with the
+  external service's exact model ID. Upgrade the service to support
+  model-qualified readiness before upgrading SCS. Omit `decision_model` or set
+  it to `"disabled"` for deterministic routing.
+- **Breaking (routing metadata):** external decisions report
+  `routing.provider = "external"`; `routing.model` carries the configured identity.
 - refactor: configure external decision models and verify model-qualified readiness
+- test(review): provide `just smoke-review` for fresh installed MCP validation
 
 ## 0.3.0 - 2026-10-28
 
