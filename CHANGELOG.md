@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- docs: polish the readme and document kev decision model setup
 - docs: clarify decision configuration upgrade order and disposable installer isolation
 
 ## 0.4.0 - 2026-10-28

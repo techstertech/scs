@@ -69,12 +69,16 @@ local provider requires an OpenAI API key.
 ## Optional external decisions
 
 External decisions are disabled by default. The external service owns its
-model and runtime. Set the service's exact model identity and endpoint:
+model and runtime. For KEV-4B, set the service's exact model identity and endpoint:
 
 ```toml
-decision_model = "your-provider/decision-model@revision"
+decision_model = "jaredpalmer/kev-4b@6cfce5c2fa4b4bd64026336ab649c5ca78857d52"
 decision_base_url = "http://127.0.0.1:10000/v1"
 ```
+
+This is an example revision, not an SCS model pin. Laya or another model can use
+the same API when the service supports its exact identity. See the
+[README setup](../README.md#configure-kev-4b) for service requirements and verification.
 
 An absent `decision_model` disables external decisions. The existing `disabled`
 value also disables them. Other values select a model at the external service;
@@ -92,10 +96,11 @@ classifier deadline. `decision_max_concurrency` defaults to 1 and accepts 1–4.
 The environment equivalents use the `SCS_` prefix, including
 `SCS_DECISION_MODEL` and `SCS_DECISION_BASE_URL`.
 
-When migrating from the former model-specific client, replace the old selector
-with the external service's model identity. The service must implement
-model-qualified readiness; an older endpoint that returns a different identity
+When migrating from the former model-specific client, follow the
+[migration order](decision-api.md#migration) before writing the new model ID.
+The service must implement model-qualified readiness; a different identity
 cannot satisfy startup checks. Restart SCS after changing configuration.
+Changing the decision model requires no index rebuild.
 
 ## Reranking
 

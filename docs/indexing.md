@@ -1,8 +1,9 @@
 # Indexing and project management
 
 SCS starts with an empty index. Repositories are enrolled only through an
-explicit CLI, MCP, or client request. Indexing is durable background work;
-`scs status` reports progress and `get_graph_stats` reports index readiness.
+explicit CLI, MCP, or client request. Indexing is durable background work.
+`scs status` reports daemon state. Use `get_graph_stats` with the repository path
+to check indexing progress and structural and semantic readiness.
 
 ## Repository boundaries
 

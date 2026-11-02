@@ -1,32 +1,37 @@
-# SCS
+# SCS — Semantic Code System
 
-SCS is a headless code-intelligence service. It indexes source repositories and
-lets coding agents investigate them through a local MCP tool. An agent asks
-`query_code` a question; SCS returns bounded evidence from its structural and
-semantic index.
+SCS is a headless code-intelligence service for coding agents. It indexes source
+repositories and exposes a local Model Context Protocol (MCP) interface. Agents
+use `query_code` to find implementations, inspect dependencies, identify affected
+tests, and retrieve linked specifications and decisions.
 
-SCS starts with an empty index. It enrolls a repository only after an explicit
-CLI, MCP, or client request, and never changes repository source.
+Each query returns bounded evidence, the selected investigation workflow
+(playbook), and coverage details. SCS starts with an empty index. It indexes a
+repository only after an explicit request and never changes repository source.
+
+[Quick start](#quick-start) · [Code queries](#how-code-queries-work) ·
+[Decision models](#optional-external-decision-routing) ·
+[Operations](#operations) · [Development](#development)
 
 ## Requirements
 
 - Stable releases support Apple Silicon macOS and x86-64 Linux with CPython 3.14.
-- Indexing needs an embedding provider. The default uses the OpenAI embeddings
-  API and sends source-derived entity text to it. Local providers are available.
-- An optional external decision API can choose query playbooks.
-  SCS works without it on both supported platforms and never runs a decision
-  model. See [external decision routing](#optional-external-decision-routing).
+- Indexing requires an embedding provider. The default uses the OpenAI API;
+  local providers are also available. See [provider configuration](docs/configuration.md).
+- Decision models are optional and run in an external service. The
+  [KEV-4B setup](#optional-external-decision-routing) below enables model-based
+  routing. Without a configured model, SCS uses deterministic routing.
 
 ## Quick start
 
 Download the installer and checksum manifest from the same
-[GitHub Release](https://github.com/leonardoventurini/scs/releases), verify the
+[GitHub Release](https://github.com/techstertech/scs/releases), verify the
 installer, and install SCS:
 
 ```bash
 VERSION=0.4.0
-curl -fsSLO "https://github.com/leonardoventurini/scs/releases/download/v${VERSION}/scs-installer-${VERSION}.sh"
-curl -fsSLO "https://github.com/leonardoventurini/scs/releases/download/v${VERSION}/SHA256SUMS"
+curl -fsSLO "https://github.com/techstertech/scs/releases/download/v${VERSION}/scs-installer-${VERSION}.sh"
+curl -fsSLO "https://github.com/techstertech/scs/releases/download/v${VERSION}/SHA256SUMS"
 shasum -a 256 -c SHA256SUMS --ignore-missing
 sh "scs-installer-${VERSION}.sh"
 scs version
@@ -39,7 +44,13 @@ Apple-signed or notarized. See
 [distribution and upgrade details](docs/github-releases-distribution.md).
 
 Configure an embedding provider before indexing. For the default OpenAI
-provider, put this in `~/.scs/config.toml`:
+provider, create the configuration directory:
+
+```bash
+mkdir -p ~/.scs
+```
+
+Add these settings to `~/.scs/config.toml`:
 
 ```toml
 embedding_provider = "openai"
@@ -48,39 +59,38 @@ embedding_dimension = 3072
 openai_api_key = "replace-with-your-key"
 ```
 
-Keep the file owner-readable only (`chmod 600 ~/.scs/config.toml`). See
-[embedding configuration](docs/configuration.md) for local provider and
-reranking options.
+Restrict access to the file before starting SCS:
 
-Register the installed stdio bridge with Codex, then index the repository
-containing your current directory:
+```bash
+chmod 600 ~/.scs/config.toml
+```
+
+The OpenAI provider sends source-derived entity text to its API. For local
+embeddings and reranking options, see [provider configuration](docs/configuration.md).
+
+Register the installed stdio bridge with Codex:
 
 ```bash
 codex mcp add scs -- "$HOME/.local/bin/scs" mcp
 codex mcp get scs
-scs index "$PWD"
-scs status
 ```
 
 If an existing `scs` MCP entry points elsewhere, remove it first with
 `codex mcp remove scs`. Restart open Codex clients after changing MCP
-configuration. Indexing runs as a durable background job; use `scs status` or
-`get_graph_stats` to check when it is ready. The path above assumes the
-installer's default `~/.local/bin` location.
+configuration. The command above assumes the installer's default `~/.local/bin`
+location. Other MCP clients can run the same executable with the `mcp` argument.
 
-## Uninstall
-
-Close connected MCP clients, then run:
+From the repository you want to index, run:
 
 ```bash
-scs uninstall          # Preserve indexes, configuration, cache, and logs.
-scs uninstall --purge  # Also delete SCS state; retain coordination lock files.
+scs index "$PWD"
+scs status
 ```
 
-Choose one command. Both require uv on PATH and leave MCP registrations in place;
-remove the SCS entry from your clients manually (`codex mcp remove scs` for
-Codex). See [uninstall details](docs/github-releases-distribution.md#upgrade-rollback-and-uninstall)
-for custom paths, safety checks, and recovery.
+Indexing runs as a durable background job. Ask your agent to check
+`get_graph_stats(repo_path="/absolute/path/to/repo")` for structural and semantic
+readiness before querying. An accepted indexing request does not mean indexing
+has finished.
 
 ## How code queries work
 
@@ -97,7 +107,7 @@ agent goal + repository + optional anchors
      bounded index search and graph reads
                  |
                  v
-   evidence + routing + trace + completeness
+   evidence + routing + trace + investigation coverage
 ```
 
 For example, an agent can ask:
@@ -112,10 +122,17 @@ query_code(
 ```
 
 The `fast`, `balanced`, and `thorough` modes set fixed time and evidence
-budgets. Results show which playbook ran and whether evidence was complete,
-truncated, or degraded. See the [MCP tool reference](docs/mcp-tools.md) for
-anchors, tool contracts, and the
-[`query_code` migration guide](docs/query-code-migration.md) for retired tools.
+budgets. Use an absolute repository path and repository-relative file anchors.
+Check these result fields before drawing conclusions:
+
+- `routing` identifies the playbook, decision provider, model, and any routing fallback.
+- `complete`, `truncated`, and `degraded_stages` describe the bounded execution.
+- `investigation` reports coverage for implementation, dependents, tests,
+  references, and contracts. A completed playbook does not establish full repository coverage.
+
+Test targets are static dependency candidates. SCS does not execute tests.
+See the [MCP tool reference](docs/mcp-tools.md) for anchors and review examples,
+and the [`query_code` migration guide](docs/query-code-migration.md) for retired tools.
 
 ## Embeddings and indexing
 
@@ -134,50 +151,122 @@ are in [embedding configuration](docs/configuration.md).
 
 ## Optional external decision routing
 
-A compatible external service can choose one of SCS's bounded query playbooks.
-SCS sends the goal, explicit anchors, and playbook choices to its configured
-HTTP API. It sends no repository source, embeddings, or retrieved evidence.
-SCS performs the search and graph reads. Without a configured decision model,
-routing follows deterministic rules.
+Use [KEV-4B](https://huggingface.co/jaredpalmer/kev-4b) to select query playbooks
+through an external service. Laya and other decision models can also work
+through a service that implements the [SCS decision API](docs/decision-api.md).
+SCS accepts the service's exact model ID and defines no model aliases.
 
-After starting a compatible service, set its endpoint and exact model identity
-in `~/.scs/config.toml`:
+A decision model chooses an investigation workflow. SCS performs the index
+search and graph reads. The service receives the goal, explicit anchors, and
+eligible playbook choices. SCS sends no retrieved source, graph records, or
+embeddings to the decision service.
+
+### Configure KEV-4B
+
+Start a service that loads KEV-4B and implements both SCS endpoints:
+
+- `GET /v1/decisions/ready?model=<model ID>` confirms that the requested model is warm.
+- `POST /v1/decisions` returns a choice and probabilities for the supplied playbooks.
+
+The [upstream KEV server](https://github.com/jaredpalmer/kev) exposes the System
+One API. An SCS-compatible service or adapter must provide the endpoints above.
+The service owns model installation, runtime, warmup, and memory use.
+
+If upgrading an older model-specific configuration, follow the
+[migration order](docs/decision-api.md#migration) before changing the model ID.
+
+Add these settings to `~/.scs/config.toml`:
 
 ```toml
-decision_model = "your-provider/decision-model@revision"
+decision_model = "jaredpalmer/kev-4b@6cfce5c2fa4b4bd64026336ab649c5ca78857d52"
 decision_base_url = "http://127.0.0.1:10000/v1"
 ```
 
-The model identity belongs to the service. SCS contains no built-in decision
-checkpoint or model aliases. Omit `decision_model` to disable external routing;
-`decision_model = "disabled"` remains supported. Older model-specific
-configurations must replace their selector with the service's exact model ID.
+This example uses a specific KEV revision. Use the exact identity supported by
+your service. For Laya or another model, change `decision_model` to that service's
+supported identity. Changing the decision model requires no index rebuild.
 
-Then restart SCS with `scs daemon restart`. SCS requests readiness for the
-configured model and requires an exact identity match before publishing its
-socket. An unavailable or incompatible service prevents startup. An inference
-failure during a query reports degradation and uses deterministic routing.
+For a trusted network service, replace the loopback URL and allow its exact hostname:
 
-The [decision API contract](docs/decision-api.md) defines readiness and choice
-validation. `routing.provider` reports `external` or `deterministic`, while
-`routing.model` reports the selected model identity. The external service owns
-model installation, warmup, runtime, and memory use.
+```toml
+decision_base_url = "http://decision-host.example:10000/v1"
+decision_trusted_hosts = ["decision-host.example"]
+```
 
-## Operations and development
+The decision API uses HTTP and sends no credentials. Use only a trusted host
+and network for query goals and anchors. See [provider configuration](docs/configuration.md#optional-external-decisions)
+for environment variables, timeouts, and concurrency limits.
 
-`scs list` shows enrolled projects and their stable numeric IDs.
-`scs reingest ID|PATH` forces a full rebuild, and `scs delete ID|PATH`
-removes only SCS-owned derived state. `scs doctor` checks daemon health;
-`scs metrics --days 7 --json` reports aggregate operations without query
-text, source text, file paths, job payloads, or results. See
-[indexing and project management](docs/indexing.md) for lifecycle details.
+### Verify routing
+
+Probe readiness for the configured model. Adjust the URL and model ID to match your service:
+
+```bash
+curl --fail --silent --show-error --get \
+  'http://127.0.0.1:10000/v1/decisions/ready' \
+  --data-urlencode 'model=jaredpalmer/kev-4b@6cfce5c2fa4b4bd64026336ab649c5ca78857d52'
+```
+
+The response must contain exactly:
+
+```json
+{
+  "status": "ok",
+  "model": "jaredpalmer/kev-4b@6cfce5c2fa4b4bd64026336ab649c5ca78857d52"
+}
+```
+
+Restart SCS to apply the settings, then check its health:
+
+```bash
+scs daemon restart
+scs doctor
+```
+
+Ask your agent to run `query_code` as usual. Confirm `routing.provider` is
+`"external"`, `routing.model` matches the configured ID, and `routing.fallback_applied`
+is `false`. A readiness response verifies availability; a query verifies decision inference.
+
+### Failure and recovery
+
+An unavailable service or mismatched model ID prevents configured startup.
+During a later outage, SCS becomes unready and waits for bounded recovery.
+If recovery fails, SCS shuts down. A failed or slow inference request uses
+deterministic routing and reports `routing.degraded_reason`.
+
+To restore operation without a decision service, set:
+
+```toml
+decision_model = "disabled"
+```
+
+If `SCS_DECISION_MODEL` is set, update or remove that environment override too.
+Then run `scs daemon restart`. Removing `decision_model` also disables external
+routing. Indexes remain available.
+
+## Operations
+
+| Command | Purpose |
+| --- | --- |
+| `scs list` | List enrolled projects and stable numeric IDs. |
+| `scs reingest ID\|PATH` | Rebuild one project's index. |
+| `scs delete ID\|PATH` | Remove one project's SCS-owned index state. |
+| `scs status` | Show daemon availability, readiness, and version. |
+| `scs doctor` | Check storage and daemon health. |
+| `scs metrics --days 7 --json` | Report aggregate operation metrics. |
+
+Metrics exclude query text, source text, file paths, job payloads, and results.
+See [indexing and project management](docs/indexing.md) for lifecycle details.
 
 Each MCP client runs a small stdio bridge. Bridges share one lazily started
 daemon, which shuts down after the last bridge disconnects. Persistent state
 lives under `SCS_HOME`. See [architecture](docs/architecture.md) for storage,
 runtime ownership, and legacy-index migration.
 
-For a source checkout:
+## Development
+
+Source builds require CPython 3.14, Rust 1.98 or later, `uv`, and `just`.
+From a source checkout, run:
 
 ```bash
 just setup
@@ -185,8 +274,28 @@ just verify
 just eval-search
 ```
 
+If your default Rust is older, prefix these commands with `RUSTUP_TOOLCHAIN=1.98`
+to select that installed toolchain.
+
 `just setup` syncs dependencies, builds the private native extension, and
 installs the repository's pre-commit hook. `just verify` runs strict
 Basedpyright checks, Ruff, Python tests with branch coverage, and the Rust
 workspace tests. Search and query evaluation guidance lives in
 [evals/README.md](evals/README.md).
+
+After documentation edits, run `scripts/verify-doc-links.sh` to check local link
+targets. Review section anchors and external URLs separately.
+
+## Uninstall
+
+Close connected MCP clients, then choose one command:
+
+```bash
+scs uninstall          # Preserve indexes, configuration, cache, and logs.
+scs uninstall --purge  # Also delete SCS state; retain coordination lock files.
+```
+
+Both commands require `uv` on `PATH` and leave MCP registrations in place.
+Remove the SCS entry from your clients manually (`codex mcp remove scs` for Codex).
+See [uninstall details](docs/github-releases-distribution.md#upgrade-rollback-and-uninstall)
+for custom paths, safety checks, and recovery.
