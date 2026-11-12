@@ -3,6 +3,7 @@
 ## 0.4.1 - 2026-11-12
 
 - fix(indexing): exclude vendored dependencies regardless of tree size
+- security: update TSG and bundled SQLite to resolve RUSTSEC-2026-0459
 - docs: explain reconciliation of previously indexed dependency files
 
 - docs: polish the readme and document kev decision model setup
