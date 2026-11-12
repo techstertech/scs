@@ -55,6 +55,7 @@ ALWAYS_SKIP_DIRS: frozenset[str] = frozenset(
         ".venv",
         "venv",
         "node_modules",
+        "vendor",  # Vendored dependencies are excluded regardless of tree size.
         "__pycache__",
         "build",
         "dist",
@@ -79,7 +80,6 @@ GENERATED_DIRECTORY_NAMES: frozenset[str] = frozenset(
         ".turbo",
         "cache",
         "generated",
-        "vendor",
     }
 )
 GENERATED_FILE_MARKERS: tuple[str, ...] = (

@@ -233,7 +233,42 @@ def test_discover_accepts_non_parser_text_and_rejects_binary_and_oversized_files
     ]
 
 
-def test_discover_prunes_only_large_generated_or_vendor_directories(
+@pytest.mark.parametrize("git_listing", [False, True])
+def test_vendor_dependencies_are_excluded_below_generated_size_thresholds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    git_listing: bool,
+) -> None:
+    repo = tmp_path / "repo"
+    paths = ["src/main.py", "vendor/pkg/dependency.py", "src/vendor/pkg/dependency.py"]
+    for rel_path in paths:
+        path = repo / rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("value = 1\n", encoding="utf-8")
+
+    alias = repo / "dependency_alias.py"
+    alias.symlink_to(repo / paths[1])
+    monkeypatch.setattr(
+        discovery,
+        "_list_git_non_ignored_paths",
+        lambda _: [*paths, alias.name] if git_listing else None,
+    )
+
+    entries = discovery.discover(repo, extensions=frozenset({".py"}))
+
+    assert [entry.rel_path for entry in entries] == ["src/main.py"]
+    for rel_path in [*paths[1:], alias.name]:
+        assert discovery.build_file_entry(repo / rel_path, repo) is None
+
+    # Explicit library discovery retains the existing dependency opt-out.
+    library_entries = discovery.discover(
+        repo, extensions=frozenset({".py"}), skip_always_dirs=False
+    )
+
+    assert {entry.rel_path for entry in library_entries} == {*paths, alias.name}
+
+
+def test_discover_prunes_only_large_generated_directories(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repo = tmp_path / "repo"

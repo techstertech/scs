@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import scs.indexing.pipeline as pipeline_module
+from scs.indexing import discovery
 from scs.graph.models import NodeType, RelationshipType
 from scs.indexing.parser.base import ParsedEdge, ParsedEntity
 from scs.indexing.parser.native import NativeParser
@@ -596,6 +597,41 @@ def test_nested_git_roots_ingest_independently_in_either_order(
 
     assert set(graph.get_all_ingested_files_sync(str(repository.resolve()))) == {"parent.py"}
     assert set(graph.get_all_ingested_files_sync(str(child.resolve()))) == {"nested.py"}
+
+
+def test_reconciliation_removes_legacy_vendor_index(
+    repository: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for rel_path in ["app.py", "vendor/pkg/dependency.py"]:
+        source = repository / rel_path
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("def example():\n    pass\n", encoding="utf-8")
+
+    graph = FakeGraph()
+    pipeline = IngestionPipeline(
+        graph=graph, parser=FakeParser(), embeddings=FakeEmbeddings()
+    )
+    with monkeypatch.context() as legacy:
+        legacy.setattr(
+            discovery, "ALWAYS_SKIP_DIRS", discovery.ALWAYS_SKIP_DIRS - {"vendor"}
+        )
+        pipeline.ingest(repository)
+
+    vendor_ids = set(
+        graph.get_node_ids_for_file_sync(str(repository.resolve()), "vendor/pkg/dependency.py")
+    )
+    assert vendor_ids
+
+    result = pipeline.ingest(repository)
+
+    assert result.files_deleted == 1
+    assert set(graph.get_all_ingested_files_sync(str(repository.resolve()))) == {"app.py"}
+    assert not vendor_ids.intersection(graph.nodes)
+    assert not vendor_ids.intersection(graph.embeddings)
+    assert all(
+        edge["source_id"] not in vendor_ids and edge["target_id"] not in vendor_ids
+        for edge in graph.edges
+    )
 
 
 def test_reconciliation_removes_only_parent_owned_files_after_nested_git_init(repository: Path) -> None:

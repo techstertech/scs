@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 - 2026-11-12
+
+- fix(indexing): exclude vendored dependencies regardless of tree size
+- docs: explain reconciliation of previously indexed dependency files
 
 - docs: polish the readme and document kev decision model setup
 - docs: clarify decision configuration upgrade order and disposable installer isolation

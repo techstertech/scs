@@ -18,7 +18,7 @@ Normal subdirectories without their own Git marker remain part of the parent.
 Filesystem fallback prunes nested roots before descent and never follows
 directory symlinks, which prevents traversal cycles. Git metadata is excluded.
 
-After upgrading, reconcile or reindex an existing parent to remove previously
+After upgrading, run `scs index <parent-path>` to remove previously
 indexed nested files. Child indexes remain independent and are preserved.
 
 ## Supported files and limits
@@ -27,9 +27,9 @@ Files supported by a native parser are indexed structurally. Other regular
 UTF-8 text files—including `Dockerfile`, dotfiles, extensionless files, and
 configuration formats—are indexed as file-level text for lexical and semantic
 search. Git ignore rules remain authoritative; common dependency, cache, VCS,
-and build directories are always skipped. Large directories are additionally
-pruned only when they cross a resource limit and exhibit generated or vendored
-evidence. Binary and oversized files are not indexed.
+and build directories are always skipped. This includes `vendor/` at any
+depth, regardless of size. Large generated directories are additionally
+pruned when they cross a resource limit. Binary and oversized files are not indexed.
 
 The default ingestion limits can be changed with environment variables:
 
@@ -40,6 +40,10 @@ The default ingestion limits can be changed with environment variables:
 - `SCS_INDEX_LARGE_DIR_BYTES` sets the aggregate-size threshold (default 512 MiB).
 
 The text sample size must not exceed the maximum file size.
+
+Use `scs index <repo-path>` after upgrading to remove old dependency entries
+and finish missing embeddings. This reconciles the index and preserves source.
+`scs reindex` forces a frozen file snapshot and does not sweep excluded paths.
 
 ## Automatic reindexing
 
