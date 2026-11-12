@@ -118,6 +118,9 @@ upgrade to a supporting release.
 It stops the prior daemon first and preserves `SCS_HOME`, project stores,
 configuration, durable jobs, and logs.
 
+Reconnect existing MCP clients after replacing the daemon. Fresh stdio bridges
+connect to the new generation; an existing bridge can retain its closed connection.
+
 Rollback installs an earlier compatible release in the same way. If a future
 release changes a persistent schema incompatibly, follow that release's data
 rollback note before starting an older binary. The TSG cutover's retained
@@ -217,6 +220,23 @@ Run the command after indexing and other model-heavy work finishes. A provider
 timeout fails the smoke gate rather than being treated as a successful run.
 The output JSON is replaced on every invocation; failures record `passed: false`
 and return nonzero, so an earlier success cannot satisfy a later gate.
+
+For a disposable smoke run with an existing configuration, isolate all three
+paths. Changing `SCS_HOME` alone still uses the normal runtime socket and can
+attach the smoke client to the production indexing queue.
+
+```bash
+review_root=$(mktemp -d)
+cp -p "${SCS_HOME:-$HOME/.scs}/config.toml" "$review_root/config.toml"
+SCS_HOME="$review_root" \
+SCS_RUNTIME_DIR="$review_root/runtime" \
+SCS_LOG_DIR="$review_root/logs" \
+just smoke-review /absolute/path/to/scs /tmp/review-report.json
+```
+
+The copied configuration uses the existing model service. Keep its credentials
+private. After the final lease closes, confirm that the isolated daemon exited
+before removing the disposable directory. The report remains outside that directory.
 
 Finish source edits before long relevance indexing. Use an immutable commit or
 snapshot for evaluation, and rerun when a source-change guard invalidates it.
