@@ -1,0 +1,287 @@
+{
+  "corpus_sha256": "8eceb8e2e65ac70741f815f6e56870fe61ebb35f434a6f6c19037a097b8edc73",
+  "created_at": "2026-11-14T15:16:51.863872+00:00",
+  "hardware": {
+    "chip": "Apple M3 Ultra",
+    "memory_gb": 256,
+    "target_hardware_tested": false,
+    "target_memory_gb": 16
+  },
+  "offline_proof": "offline-proof.json",
+  "recommended_profile": {
+    "combined_memory_tested": false,
+    "downloaded_artifact_bytes": 3261138146,
+    "models": [
+      "Qwen/Qwen3-Embedding-0.6B",
+      "Qwen/Qwen3-Reranker-0.6B",
+      "aac6fef/laya-mlx"
+    ],
+    "weight_bytes": 3225783921
+  },
+  "runs": {
+    "embedding-bge.json": {
+      "aggregate": {
+        "mean_latency_ms": 8.624146482907236,
+        "mean_ndcg_at_k": 0.4205240428411748,
+        "mean_recall_at_k": 0.525,
+        "mean_reciprocal_rank": 0.43916666666666665,
+        "mean_response_bytes": 0.0,
+        "p95_latency_ms": 9.63283283635974,
+        "query_count": 20
+      },
+      "model": "BAAI/bge-small-en-v1.5",
+      "summary": null
+    },
+    "embedding-jina.json": {
+      "aggregate": {
+        "mean_latency_ms": 4.661979145991306,
+        "mean_ndcg_at_k": 0.27636524177743865,
+        "mean_recall_at_k": 0.5,
+        "mean_reciprocal_rank": 0.23222222222222225,
+        "mean_response_bytes": 0.0,
+        "p95_latency_ms": 5.6147500872612,
+        "query_count": 20
+      },
+      "model": "jinaai/jina-embeddings-v2-base-code",
+      "summary": null
+    },
+    "embedding-nomic.json": {
+      "aggregate": {
+        "mean_latency_ms": 5.60967354880025,
+        "mean_ndcg_at_k": 0.43413583037790165,
+        "mean_recall_at_k": 0.6,
+        "mean_reciprocal_rank": 0.4267261904761905,
+        "mean_response_bytes": 0.0,
+        "p95_latency_ms": 6.478125229477882,
+        "query_count": 20
+      },
+      "model": "nomic-ai/nomic-embed-text-v1.5",
+      "summary": null
+    },
+    "embedding-qwen-offline.json": {
+      "aggregate": {
+        "mean_latency_ms": 25.633208313956857,
+        "mean_ndcg_at_k": 0.4198307288192143,
+        "mean_recall_at_k": 0.65,
+        "mean_reciprocal_rank": 0.3950595238095238,
+        "mean_response_bytes": 0.0,
+        "p95_latency_ms": 30.0503340549767,
+        "query_count": 20
+      },
+      "model": "Qwen/Qwen3-Embedding-0.6B",
+      "summary": null
+    },
+    "embedding-qwen-scs-prefixes.json": {
+      "aggregate": {
+        "mean_latency_ms": 30.585722260487575,
+        "mean_ndcg_at_k": 0.19410687783712116,
+        "mean_recall_at_k": 0.35,
+        "mean_reciprocal_rank": 0.1717857142857143,
+        "mean_response_bytes": 0.0,
+        "p95_latency_ms": 29.72095785662532,
+        "query_count": 20
+      },
+      "model": "Qwen/Qwen3-Embedding-0.6B",
+      "summary": null
+    },
+    "embedding-qwen.json": {
+      "aggregate": {
+        "mean_latency_ms": 26.531825657002628,
+        "mean_ndcg_at_k": 0.4198307288192143,
+        "mean_recall_at_k": 0.65,
+        "mean_reciprocal_rank": 0.3950595238095238,
+        "mean_response_bytes": 0.0,
+        "p95_latency_ms": 30.711916740983725,
+        "query_count": 20
+      },
+      "model": "Qwen/Qwen3-Embedding-0.6B",
+      "summary": null
+    },
+    "reranking-minilm-nomic.json": {
+      "aggregate": {
+        "mean_latency_ms": 702.7447410160676,
+        "mean_ndcg_at_k": 0.47371619367167617,
+        "mean_recall_at_k": 0.675,
+        "mean_reciprocal_rank": 0.42638888888888893,
+        "mean_response_bytes": 0.0,
+        "p95_latency_ms": 798.928583972156,
+        "query_count": 20
+      },
+      "model": "cross-encoder/ms-marco-MiniLM-L6-v2",
+      "summary": null
+    },
+    "reranking-minilm-qwen.json": {
+      "aggregate": {
+        "mean_latency_ms": 516.8663923551018,
+        "mean_ndcg_at_k": 0.5240305647716237,
+        "mean_recall_at_k": 0.7,
+        "mean_reciprocal_rank": 0.49333333333333335,
+        "mean_response_bytes": 0.0,
+        "p95_latency_ms": 683.1759172491729,
+        "query_count": 20
+      },
+      "model": "cross-encoder/ms-marco-MiniLM-L6-v2",
+      "summary": null
+    },
+    "reranking-qwen-nomic.json": {
+      "aggregate": {
+        "mean_latency_ms": 1523.6053944254916,
+        "mean_ndcg_at_k": 0.575859882861644,
+        "mean_recall_at_k": 0.7,
+        "mean_reciprocal_rank": 0.6033333333333333,
+        "mean_response_bytes": 0.0,
+        "p95_latency_ms": 2122.887708712369,
+        "query_count": 20
+      },
+      "model": "Qwen/Qwen3-Reranker-0.6B",
+      "summary": null
+    },
+    "reranking-qwen-offline.json": {
+      "aggregate": {
+        "mean_latency_ms": 1110.5067596537992,
+        "mean_ndcg_at_k": 0.6101074151159274,
+        "mean_recall_at_k": 0.75,
+        "mean_reciprocal_rank": 0.6391666666666667,
+        "mean_response_bytes": 0.0,
+        "p95_latency_ms": 1306.717332918197,
+        "query_count": 20
+      },
+      "model": "Qwen/Qwen3-Reranker-0.6B",
+      "summary": null
+    },
+    "reranking-qwen-qwen.json": {
+      "aggregate": {
+        "mean_latency_ms": 1113.4802582984169,
+        "mean_ndcg_at_k": 0.6101074151159274,
+        "mean_recall_at_k": 0.75,
+        "mean_reciprocal_rank": 0.6391666666666667,
+        "mean_response_bytes": 0.0,
+        "p95_latency_ms": 1323.4444591216743,
+        "query_count": 20
+      },
+      "model": "Qwen/Qwen3-Reranker-0.6B",
+      "summary": null
+    },
+    "routing-deterministic.json": {
+      "aggregate": null,
+      "model": "deterministic-v1",
+      "summary": {
+        "observed_deadline_miss_rates": {
+          "balanced": 0.0,
+          "fast": 0.0,
+          "thorough": 0.0
+        },
+        "p50_latency_ms": 0.005417037755250931,
+        "p95_latency_ms": 0.007457565516233444,
+        "policy_preview_accuracy": 0.4117647058823529,
+        "policy_requires_anchor_resolution_count": 3,
+        "raw_accuracy": 0.25,
+        "raw_multiclass_brier": 1.5,
+        "raw_scored_count": 48,
+        "sample_count": 51,
+        "truncated_sample_count": 0
+      }
+    },
+    "routing-kev4b.json": {
+      "aggregate": null,
+      "model": "jaredpalmer/kev-4b@6cfce5c2fa4b4bd64026336ab649c5ca78857d52",
+      "summary": {
+        "observed_deadline_miss_rates": {
+          "balanced": 0.0,
+          "fast": 0.0392156862745098,
+          "thorough": 0.0
+        },
+        "p50_latency_ms": 124.85654139891267,
+        "p95_latency_ms": 149.71491694450378,
+        "policy_preview_accuracy": 1.0,
+        "policy_requires_anchor_resolution_count": 3,
+        "raw_accuracy": 0.875,
+        "raw_multiclass_brier": 0.343579261875,
+        "raw_scored_count": 48,
+        "sample_count": 51,
+        "truncated_sample_count": 0
+      }
+    },
+    "routing-laya-multilingual.json": {
+      "aggregate": null,
+      "model": "aac6fef/laya-multilingual-mlx@f2b4faf51023039425946074e2cf1361d2db11d5",
+      "summary": {
+        "observed_deadline_miss_rates": {
+          "balanced": 0.0,
+          "fast": 0.0,
+          "thorough": 0.0
+        },
+        "p50_latency_ms": 7.7309999614953995,
+        "p95_latency_ms": 8.909875061362982,
+        "policy_preview_accuracy": 0.8823529411764706,
+        "policy_requires_anchor_resolution_count": 3,
+        "raw_accuracy": 0.875,
+        "raw_multiclass_brier": 0.25398850187500005,
+        "raw_scored_count": 48,
+        "sample_count": 51,
+        "truncated_sample_count": 0
+      }
+    },
+    "routing-laya-offline-local.json": {
+      "aggregate": null,
+      "model": "aac6fef/laya-mlx@20aed815fc6acde75733882e7ec0e3f28aeb9717",
+      "summary": {
+        "observed_deadline_miss_rates": {
+          "balanced": 0.0,
+          "fast": 0.2549019607843137,
+          "thorough": 0.0
+        },
+        "p50_latency_ms": 17.361542209982872,
+        "p95_latency_ms": 206.47712517529726,
+        "policy_preview_accuracy": 1.0,
+        "policy_requires_anchor_resolution_count": 3,
+        "raw_accuracy": 1.0,
+        "raw_multiclass_brier": 0.25130465875,
+        "raw_scored_count": 48,
+        "sample_count": 51,
+        "truncated_sample_count": 0
+      }
+    },
+    "routing-laya-offline.json": {
+      "aggregate": null,
+      "model": "aac6fef/laya-mlx@20aed815fc6acde75733882e7ec0e3f28aeb9717",
+      "summary": {
+        "observed_deadline_miss_rates": {
+          "balanced": 0.0,
+          "fast": 0.6666666666666666,
+          "thorough": 0.0
+        },
+        "p50_latency_ms": 195.9472093731165,
+        "p95_latency_ms": 271.03391708806157,
+        "policy_preview_accuracy": 1.0,
+        "policy_requires_anchor_resolution_count": 3,
+        "raw_accuracy": 1.0,
+        "raw_multiclass_brier": 0.25130465875,
+        "raw_scored_count": 48,
+        "sample_count": 51,
+        "truncated_sample_count": 0
+      }
+    },
+    "routing-laya.json": {
+      "aggregate": null,
+      "model": "aac6fef/laya-mlx@20aed815fc6acde75733882e7ec0e3f28aeb9717",
+      "summary": {
+        "observed_deadline_miss_rates": {
+          "balanced": 0.0,
+          "fast": 0.0,
+          "thorough": 0.0
+        },
+        "p50_latency_ms": 16.544582787901163,
+        "p95_latency_ms": 18.79745814949274,
+        "policy_preview_accuracy": 1.0,
+        "policy_requires_anchor_resolution_count": 3,
+        "raw_accuracy": 1.0,
+        "raw_multiclass_brier": 0.25130465875,
+        "raw_scored_count": 48,
+        "sample_count": 51,
+        "truncated_sample_count": 0
+      }
+    }
+  },
+  "source_commit": "ec223664e309a14c979d8d27879fd27d7879dab4"
+}

@@ -1,0 +1,35 @@
+{
+  "comparisons": {
+    "embeddings": {
+      "baseline": "embedding-qwen.json",
+      "network_denied_replay": "embedding-qwen-offline.json",
+      "quality_exact_match": true,
+      "rankings_exact_match": true
+    },
+    "reranking": {
+      "baseline": "reranking-qwen-qwen.json",
+      "network_denied_replay": "reranking-qwen-offline.json",
+      "quality_exact_match": true,
+      "rankings_exact_match": true
+    },
+    "routing": {
+      "baseline": "routing-laya.json",
+      "choices_exact_match": true,
+      "network_denied_replay": "routing-laya-offline.json",
+      "probabilities_exact_match": true
+    }
+  },
+  "network_control": {
+    "errno": 1,
+    "host": "1.1.1.1",
+    "port": 443,
+    "result": "EPERM"
+  },
+  "scope": "Fresh component processes. Complete SCS installation and MCP sessions were not exercised.",
+  "status": "passed",
+  "wrapper": [
+    "/usr/bin/sandbox-exec",
+    "-p",
+    "(version 1) (allow default) (deny network*)"
+  ]
+}

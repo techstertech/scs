@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "name": "scs-local-search-v1",
+  "cases": [
+    {
+      "query": "combine semantic and lexical code search candidates",
+      "relevant": [
+        {"qualified_name": "src.scs.indexing.search.CodeSearchService.search", "file_path": "src/scs/indexing/search.py", "relevance": 3},
+        {"qualified_name": "src.scs.indexing.search.CodeSearchService._fuse", "file_path": "src/scs/indexing/search.py", "relevance": 2}
+      ]
+    },
+    {
+      "query": "validate a local reranking response and reject invalid document positions",
+      "relevant": [
+        {"qualified_name": "src.scs.providers.openai_compatible_reranking.OpenAICompatibleRerankingProvider._parse_results", "file_path": "src/scs/providers/openai_compatible_reranking.py", "relevance": 3},
+        {"qualified_name": "src.scs.providers.openai_compatible_reranking.OpenAICompatibleRerankingProvider.rerank", "file_path": "src/scs/providers/openai_compatible_reranking.py", "relevance": 2}
+      ]
+    },
+    {
+      "query": "build the MCP code intelligence tool server",
+      "relevant": [
+        {"qualified_name": "src.scs.mcp.server.build_mcp", "file_path": "src/scs/mcp/server.py", "relevance": 3}
+      ]
+    },
+    {
+      "query": "index a repository and persist parsed entities",
+      "relevant": [
+        {"qualified_name": "src.scs.indexing.pipeline.IngestionPipeline.ingest", "file_path": "src/scs/indexing/pipeline.py", "relevance": 3},
+        {"qualified_name": "src.scs.indexing.pipeline.IngestionPipeline._ingest_entries", "file_path": "src/scs/indexing/pipeline.py", "relevance": 2}
+      ]
+    },
+    {
+      "query": "expand semantic search seeds through graph relationships",
+      "relevant": [
+        {"qualified_name": "src.scs.services.routes.SCSServiceRoutes.graph_context", "file_path": "src/scs/services/routes.py", "relevance": 3}
+      ]
+    },
+    {
+      "query": "start the daemon and construct embedding providers",
+      "relevant": [
+        {"qualified_name": "src.scs.main.SCSDaemon.start", "file_path": "src/scs/main.py", "relevance": 3}
+      ]
+    },
+    {
+      "query": "discover source files while respecting git ignore rules and excluding vendor directories",
+      "relevant": [
+        {"qualified_name": "src.scs.indexing.discovery.discover", "file_path": "src/scs/indexing/discovery.py", "relevance": 3},
+        {"qualified_name": "src.scs.indexing.discovery._list_git_non_ignored_paths", "file_path": "src/scs/indexing/discovery.py", "relevance": 2}
+      ]
+    },
+    {
+      "query": "split embedding requests without exceeding provider character or item limits",
+      "relevant": [
+        {"qualified_name": "src.scs.providers.openai_compatible.OpenAICompatibleEmbeddingProvider._bounded_batches", "file_path": "src/scs/providers/openai_compatible.py", "relevance": 3}
+      ]
+    },
+    {
+      "query": "reject malformed embedding vectors with incorrect dimensions or nonfinite components",
+      "relevant": [
+        {"qualified_name": "src.scs.providers.openai_compatible.OpenAICompatibleEmbeddingProvider._parse_embeddings", "file_path": "src/scs/providers/openai_compatible.py", "relevance": 3},
+        {"qualified_name": "src.scs.providers.openai_compatible.OpenAICompatibleEmbeddingProvider._component", "file_path": "src/scs/providers/openai_compatible.py", "relevance": 2}
+      ]
+    },
+    {
+      "query": "prevent concurrent clients from spawning separate daemon generations",
+      "relevant": [
+        {"qualified_name": "src.scs.daemon.DaemonController.ensure_started", "file_path": "src/scs/daemon.py", "relevance": 3}
+      ]
+    },
+    {
+      "query": "select a code investigation workflow through an external decision service",
+      "relevant": [
+        {"qualified_name": "src.scs.orchestration.external_decision_provider.ExternalDecisionProvider.classify", "file_path": "src/scs/orchestration/external_decision_provider.py", "relevance": 3}
+      ]
+    },
+    {
+      "query": "monitor decision service health and shut down after bounded failed recovery",
+      "relevant": [
+        {"qualified_name": "src.scs.orchestration.external_decision_provider.ExternalDecisionProvider._watch_health", "file_path": "src/scs/orchestration/external_decision_provider.py", "relevance": 3}
+      ]
+    },
+    {
+      "query": "reclaim only stale Unix sockets while preserving a live listener",
+      "relevant": [
+        {"qualified_name": "src.scs.wire.server.WireServer._prepare_socket_path", "file_path": "src/scs/wire/server.py", "relevance": 3},
+        {"qualified_name": "src.scs.wire.server.WireServer.start", "file_path": "src/scs/wire/server.py", "relevance": 2}
+      ]
+    },
+    {
+      "query": "give repeated symbol declarations distinct stable node identities",
+      "relevant": [
+        {"qualified_name": "src.scs.indexing.pipeline._node_id", "file_path": "src/scs/indexing/pipeline.py", "relevance": 3}
+      ]
+    },
+    {
+      "query": "preserve edges from unchanged source files when replacing a target declaration",
+      "relevant": [
+        {"qualified_name": "src.scs.indexing.pipeline.IngestionPipeline._retained_inbound_edges", "file_path": "src/scs/indexing/pipeline.py", "relevance": 3}
+      ]
+    },
+    {
+      "query": "partition indexing work into complete file batches without splitting a file",
+      "relevant": [
+        {"qualified_name": "src.scs.indexing.pipeline.IngestionPipeline._plan_batches", "file_path": "src/scs/indexing/pipeline.py", "relevance": 3}
+      ]
+    },
+    {
+      "query": "wait for a background indexing job without changing its queue state",
+      "relevant": [
+        {"qualified_name": "src.scs.services.routes.SCSServiceRoutes._wait_for_job", "file_path": "src/scs/services/routes.py", "relevance": 3}
+      ]
+    },
+    {
+      "query": "construct a reranking provider only when a model is configured",
+      "relevant": [
+        {"qualified_name": "src.scs.main.build_reranker", "file_path": "src/scs/main.py", "relevance": 3}
+      ]
+    },
+    {
+      "query": "stop a lazily started daemon after the final attached client disconnects",
+      "relevant": [
+        {"qualified_name": "src.scs.main.SCSDaemon._client_count_changed", "file_path": "src/scs/main.py", "relevance": 3},
+        {"qualified_name": "src.scs.main.SCSDaemon._shutdown_after", "file_path": "src/scs/main.py", "relevance": 2}
+      ]
+    },
+    {
+      "query": "create semantic document text from code signatures and docstrings",
+      "relevant": [
+        {"qualified_name": "src.scs.indexing.parser.base.build_embed_text", "file_path": "src/scs/indexing/parser/base.py", "relevance": 3},
+        {"qualified_name": "src.scs.indexing.parser.base.ParsedEntity.embed_text", "file_path": "src/scs/indexing/parser/base.py", "relevance": 2}
+      ]
+    }
+  ]
+}

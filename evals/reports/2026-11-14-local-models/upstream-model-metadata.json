@@ -1,0 +1,442 @@
+{
+  "BAAI/bge-small-en-v1.5": {
+    "revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+    "files": [
+      {
+        "name": ".gitattributes",
+        "bytes": 1519
+      },
+      {
+        "name": "1_Pooling/config.json",
+        "bytes": 190
+      },
+      {
+        "name": "README.md",
+        "bytes": 94783
+      },
+      {
+        "name": "config.json",
+        "bytes": 743
+      },
+      {
+        "name": "config_sentence_transformers.json",
+        "bytes": 124
+      },
+      {
+        "name": "model.safetensors",
+        "bytes": 133466304
+      },
+      {
+        "name": "modules.json",
+        "bytes": 349
+      },
+      {
+        "name": "onnx/model.onnx",
+        "bytes": 133093490
+      },
+      {
+        "name": "pytorch_model.bin",
+        "bytes": 133508397
+      },
+      {
+        "name": "sentence_bert_config.json",
+        "bytes": 52
+      },
+      {
+        "name": "special_tokens_map.json",
+        "bytes": 125
+      },
+      {
+        "name": "tokenizer.json",
+        "bytes": 711396
+      },
+      {
+        "name": "tokenizer_config.json",
+        "bytes": 366
+      },
+      {
+        "name": "vocab.txt",
+        "bytes": 231508
+      }
+    ],
+    "license": "mit"
+  },
+  "Qwen/Qwen3-Embedding-0.6B": {
+    "revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+    "files": [
+      {
+        "name": ".gitattributes",
+        "bytes": 1570
+      },
+      {
+        "name": "1_Pooling/config.json",
+        "bytes": 313
+      },
+      {
+        "name": "README.md",
+        "bytes": 17237
+      },
+      {
+        "name": "config.json",
+        "bytes": 727
+      },
+      {
+        "name": "config_sentence_transformers.json",
+        "bytes": 215
+      },
+      {
+        "name": "generation_config.json",
+        "bytes": 117
+      },
+      {
+        "name": "merges.txt",
+        "bytes": 1671853
+      },
+      {
+        "name": "model.safetensors",
+        "bytes": 1191586416
+      },
+      {
+        "name": "modules.json",
+        "bytes": 349
+      },
+      {
+        "name": "tokenizer.json",
+        "bytes": 11423705
+      },
+      {
+        "name": "tokenizer_config.json",
+        "bytes": 9706
+      },
+      {
+        "name": "vocab.json",
+        "bytes": 2776833
+      }
+    ],
+    "license": "apache-2.0"
+  },
+  "nomic-ai/nomic-embed-text-v1.5": {
+    "revision": "e9b6763023c676ca8431644204f50c2b100d9aab",
+    "files": [
+      {
+        "name": ".gitattributes",
+        "bytes": 1519
+      },
+      {
+        "name": "1_Pooling/config.json",
+        "bytes": 286
+      },
+      {
+        "name": "README.md",
+        "bytes": 71843
+      },
+      {
+        "name": "config.json",
+        "bytes": 2538
+      },
+      {
+        "name": "config_sentence_transformers.json",
+        "bytes": 140
+      },
+      {
+        "name": "model.safetensors",
+        "bytes": 546938168
+      },
+      {
+        "name": "modules.json",
+        "bytes": 255
+      },
+      {
+        "name": "onnx/model.onnx",
+        "bytes": 547310275
+      },
+      {
+        "name": "onnx/model_bnb4.onnx",
+        "bytes": 158035801
+      },
+      {
+        "name": "onnx/model_fp16.onnx",
+        "bytes": 273859028
+      },
+      {
+        "name": "onnx/model_int8.onnx",
+        "bytes": 137296292
+      },
+      {
+        "name": "onnx/model_q4.onnx",
+        "bytes": 165113221
+      },
+      {
+        "name": "onnx/model_q4f16.onnx",
+        "bytes": 111076526
+      },
+      {
+        "name": "onnx/model_quantized.onnx",
+        "bytes": 137296292
+      },
+      {
+        "name": "onnx/model_uint8.onnx",
+        "bytes": 137296322
+      },
+      {
+        "name": "sentence_bert_config.json",
+        "bytes": 58
+      },
+      {
+        "name": "special_tokens_map.json",
+        "bytes": 695
+      },
+      {
+        "name": "tokenizer.json",
+        "bytes": 711396
+      },
+      {
+        "name": "tokenizer_config.json",
+        "bytes": 1191
+      },
+      {
+        "name": "vocab.txt",
+        "bytes": 231508
+      }
+    ],
+    "license": "apache-2.0"
+  },
+  "jinaai/jina-embeddings-v2-base-code": {
+    "revision": "516f4baf13dec4ddddda8631e019b5737c8bc250",
+    "files": [
+      {
+        "name": ".gitattributes",
+        "bytes": 1519
+      },
+      {
+        "name": "1_Pooling/config.json",
+        "bytes": 191
+      },
+      {
+        "name": "README.md",
+        "bytes": 7439
+      },
+      {
+        "name": "config.json",
+        "bytes": 1216
+      },
+      {
+        "name": "generation_config.json",
+        "bytes": 90
+      },
+      {
+        "name": "model.safetensors",
+        "bytes": 321767312
+      },
+      {
+        "name": "modules.json",
+        "bytes": 229
+      },
+      {
+        "name": "onnx/model.onnx",
+        "bytes": 641517466
+      },
+      {
+        "name": "onnx/model_fp16.onnx",
+        "bytes": 321072580
+      },
+      {
+        "name": "onnx/model_quantized.onnx",
+        "bytes": 161895621
+      },
+      {
+        "name": "pytorch_model.bin",
+        "bytes": 321787514
+      },
+      {
+        "name": "sentence_bert_config.json",
+        "bytes": 99
+      },
+      {
+        "name": "special_tokens_map.json",
+        "bytes": 280
+      },
+      {
+        "name": "tokenizer.json",
+        "bytes": 2561316
+      },
+      {
+        "name": "tokenizer_config.json",
+        "bytes": 493
+      },
+      {
+        "name": "train_results.json",
+        "bytes": 198
+      },
+      {
+        "name": "trainer_state.json",
+        "bytes": 1216501
+      },
+      {
+        "name": "vocab.json",
+        "bytes": 970639
+      }
+    ],
+    "license": "apache-2.0"
+  },
+  "cross-encoder/ms-marco-MiniLM-L6-v2": {
+    "revision": "233902d25c440f23af6f7d6e94d2946bac0bee0a",
+    "files": [
+      {
+        "name": ".gitattributes",
+        "bytes": 790
+      },
+      {
+        "name": "README.md",
+        "bytes": 3673
+      },
+      {
+        "name": "config.json",
+        "bytes": 794
+      },
+      {
+        "name": "flax_model.msgpack",
+        "bytes": 90858210
+      },
+      {
+        "name": "model.safetensors",
+        "bytes": 90870598
+      },
+      {
+        "name": "onnx/model.onnx",
+        "bytes": 91011230
+      },
+      {
+        "name": "onnx/model_O1.onnx",
+        "bytes": 90962586
+      },
+      {
+        "name": "onnx/model_O2.onnx",
+        "bytes": 90877294
+      },
+      {
+        "name": "onnx/model_O3.onnx",
+        "bytes": 90877225
+      },
+      {
+        "name": "onnx/model_O4.onnx",
+        "bytes": 45516616
+      },
+      {
+        "name": "onnx/model_qint8_arm64.onnx",
+        "bytes": 23200716
+      },
+      {
+        "name": "onnx/model_qint8_avx512.onnx",
+        "bytes": 23200716
+      },
+      {
+        "name": "onnx/model_qint8_avx512_vnni.onnx",
+        "bytes": 23200716
+      },
+      {
+        "name": "onnx/model_quint8_avx2.onnx",
+        "bytes": 23200716
+      },
+      {
+        "name": "openvino/openvino_model.bin",
+        "bytes": 90858656
+      },
+      {
+        "name": "openvino/openvino_model.xml",
+        "bytes": 205291
+      },
+      {
+        "name": "openvino/openvino_model_qint8_quantized.bin",
+        "bytes": 23087684
+      },
+      {
+        "name": "openvino/openvino_model_qint8_quantized.xml",
+        "bytes": 371611
+      },
+      {
+        "name": "pytorch_model.bin",
+        "bytes": 90903017
+      },
+      {
+        "name": "special_tokens_map.json",
+        "bytes": 132
+      },
+      {
+        "name": "tokenizer.json",
+        "bytes": 711396
+      },
+      {
+        "name": "tokenizer_config.json",
+        "bytes": 1330
+      },
+      {
+        "name": "vocab.txt",
+        "bytes": 231508
+      }
+    ],
+    "license": "apache-2.0"
+  },
+  "Qwen/Qwen3-Reranker-0.6B": {
+    "revision": "e61197ed45024b0ed8a2d74b80b4d909f1255473",
+    "files": [
+      {
+        "name": ".gitattributes",
+        "bytes": 1570
+      },
+      {
+        "name": "1_LogitScore/config.json",
+        "bytes": 57
+      },
+      {
+        "name": "README.md",
+        "bytes": 14742
+      },
+      {
+        "name": "chat_template.jinja",
+        "bytes": 741
+      },
+      {
+        "name": "config.json",
+        "bytes": 727
+      },
+      {
+        "name": "config_sentence_transformers.json",
+        "bytes": 325
+      },
+      {
+        "name": "generation_config.json",
+        "bytes": 214
+      },
+      {
+        "name": "merges.txt",
+        "bytes": 1671853
+      },
+      {
+        "name": "model.safetensors",
+        "bytes": 1191588280
+      },
+      {
+        "name": "modules.json",
+        "bytes": 280
+      },
+      {
+        "name": "sentence_bert_config.json",
+        "bytes": 362
+      },
+      {
+        "name": "tokenizer.json",
+        "bytes": 11422654
+      },
+      {
+        "name": "tokenizer_config.json",
+        "bytes": 9706
+      },
+      {
+        "name": "vocab.json",
+        "bytes": 2776833
+      }
+    ],
+    "license": "apache-2.0"
+  }
+}

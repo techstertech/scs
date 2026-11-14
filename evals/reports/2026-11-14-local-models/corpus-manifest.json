@@ -1,0 +1,2151 @@
+{
+  "corpus_sha256": "8eceb8e2e65ac70741f815f6e56870fe61ebb35f434a6f6c19037a097b8edc73",
+  "document_count": 3730,
+  "file_count": 305,
+  "files": [
+    {
+      "blob_oid": "a19aa122b7d5db2610e134e455e9df9cbdd21b87",
+      "content_sha256": "e489ac3f62755d923679e7d10b561623bec50da10715f88611a41d9a551c7fa7",
+      "entity_count": 1,
+      "file_path": ".cargo/config.toml",
+      "language": "text"
+    },
+    {
+      "blob_oid": "919bcffa15c8ad22c3fc39f710049b3f911594d8",
+      "content_sha256": "17617afc219f78a5727da8924e2443ac93e7bb5bf07b170838e521be5a00b2e7",
+      "entity_count": 1,
+      "file_path": ".claude/settings.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "3b23fc7f1c8dc13e4448a7f2fdb28e73082bb9c7",
+      "content_sha256": "10789e70ce1d19ec38d93fbfd5d4a07715fdb952dea6e0f6400904a4b0a87d56",
+      "entity_count": 1,
+      "file_path": ".codex/config.toml",
+      "language": "text"
+    },
+    {
+      "blob_oid": "74279dabe92ff84c20fcc2b1952aada086fe53b5",
+      "content_sha256": "58cc7c050a858b7cdf120907816887b367076a96ab6463b48df4ebfade8eed19",
+      "entity_count": 1,
+      "file_path": ".github/workflows/ci.yml",
+      "language": "text"
+    },
+    {
+      "blob_oid": "cb8cbe69b54989f863f75bd1f5d5011623fc0acf",
+      "content_sha256": "63b7be812470e69da7c141dc69d25bdc207534fbf051f96ee2da36d831a9ecce",
+      "entity_count": 1,
+      "file_path": ".github/workflows/release.yml",
+      "language": "text"
+    },
+    {
+      "blob_oid": "2dbc9253418105231c265cecff433e38753dc7c7",
+      "content_sha256": "247b62e8f4a2e2f9a823919e2276b9a21b5b5c429208b8e9fdcbba41d35ee62f",
+      "entity_count": 1,
+      "file_path": ".gitignore",
+      "language": "text"
+    },
+    {
+      "blob_oid": "5d90ddac7d72deab18e9286d5ccc2a56f2ff9b84",
+      "content_sha256": "bff9ef3e10ca50a4bcf80f398a1301c629d432d64db3603db5f41c8b79e59700",
+      "entity_count": 1,
+      "file_path": ".pre-commit-config.yaml",
+      "language": "text"
+    },
+    {
+      "blob_oid": "fb04d405922ff538d481b3458ae6482869a924af",
+      "content_sha256": "5ac1bcb48c1dcfa9d48796507886a45f4daacb9878fde67e641117948a402a01",
+      "entity_count": 1,
+      "file_path": "AGENTS.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "ae8476ddcaab66b8ac9c57ff56fab6817e7c5261",
+      "content_sha256": "926dd08f79c9edb6daaada7f741d14002f783e71ef81f8108abeb65b1d2a3d52",
+      "entity_count": 1,
+      "file_path": "ARCHITECTURE.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "c13ac914c9c4b5856cefa6734ca8967cc8e36893",
+      "content_sha256": "f9855b3c8da7fa5c04a0cf800218612a125f2a8c84fc4fd1568b2f4998fbc881",
+      "entity_count": 1,
+      "file_path": "CHANGELOG.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "5ba885b2595c63404866993dc7181285149452fd",
+      "content_sha256": "a11adda066891a19086c2b36d41691242e4af782caf5934daffdf3683e2b5dbc",
+      "entity_count": 1,
+      "file_path": "Cargo.lock",
+      "language": "text"
+    },
+    {
+      "blob_oid": "e05b51c6d3f9c1420d0d131f535c52465be47aa5",
+      "content_sha256": "166ccb58df0285b528e5dff001ab3454641919e33e4b89c4852d1660ac7bc769",
+      "entity_count": 1,
+      "file_path": "Cargo.toml",
+      "language": "text"
+    },
+    {
+      "blob_oid": "9ca1fa8fb2a57ba4bb5f1c6c4ce1368cdb00bd13",
+      "content_sha256": "1aaadf54099d3f696c8777ade4aee16adadfe6bc7087794482685b60446b5f7f",
+      "entity_count": 1,
+      "file_path": "LICENSE",
+      "language": "text"
+    },
+    {
+      "blob_oid": "da76bcc128dd8f5a48f77a2dda78b241986d1b03",
+      "content_sha256": "ad8fb070bfe584dac30c34de9d3e6e5bcb3baef5fd3dd8316d12ab922c86cb0c",
+      "entity_count": 1,
+      "file_path": "OMLX.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "86f0ddf01b796f686c5cb4d8b0f70d6e191d5a59",
+      "content_sha256": "2f3c23ecfa9c55c59b8f03d037693984e9e88c73b23e94e150e06c372c2a8c34",
+      "entity_count": 1,
+      "file_path": "README.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "aa543bd4c88ab06deb877d86e673260f95345a46",
+      "content_sha256": "c10bdbff692a071d85f7defe38c69c46ade434cb145d2206e087d692ef67192c",
+      "entity_count": 1,
+      "file_path": "crates/scs-core/Cargo.toml",
+      "language": "text"
+    },
+    {
+      "blob_oid": "74c8c2fc66aed54624fa03000c6f49f8058ee352",
+      "content_sha256": "003af7a4d021b96160a72eb154ae5d36478fc6e6ef43f9f0ea60a7d0e0db54f2",
+      "entity_count": 10,
+      "file_path": "crates/scs-core/src/config.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "834d19188639c37b12107fa52f79c2fc552996b1",
+      "content_sha256": "8592fed7edba94aae22f89797742e8cbeb6ef2f8de90e4e04d383753fe6d82e8",
+      "entity_count": 4,
+      "file_path": "crates/scs-core/src/error.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "6b2eee25d2eb84af29ff5736ed011c3d81a224f3",
+      "content_sha256": "c02d5b936522fe24534088657b81b29f16c44576e65034772861f2de9c90cf9f",
+      "entity_count": 11,
+      "file_path": "crates/scs-core/src/lib.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "20acfaa5f12ca231b62da234af037b1219fb3301",
+      "content_sha256": "aeb61d320c945b40da17847c0da8dd1043188b7fd7552c7f65f36b4180101949",
+      "entity_count": 11,
+      "file_path": "crates/scs-core/src/models.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "53deefe57fd8dd7f7b171738117b1bfb31692329",
+      "content_sha256": "1d7e4e86d033cd6981186a4f2758de8dd0d831f02150d7f61b2b1dea9a54bcee",
+      "entity_count": 13,
+      "file_path": "crates/scs-core/src/node_types.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "e80a14b9b86bf1192f3e507f42a1179b83d63227",
+      "content_sha256": "ed58b9e03bdbc4ce1ad86989d9fa819d2951736271ab9a9e7b35ebfbb2b531df",
+      "entity_count": 1,
+      "file_path": "crates/scs-parser/Cargo.toml",
+      "language": "text"
+    },
+    {
+      "blob_oid": "2dbabcf0a7d7909077c5d73d9fddddd76d913a3d",
+      "content_sha256": "7387a268eb00db6df4ab697416a81514cc42059d428eab37cda4ef945889f402",
+      "entity_count": 1,
+      "file_path": "crates/scs-parser/src/lib.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "da3c63cf1b3de30d5b50f772582df3d08d8fe826",
+      "content_sha256": "b522ecd83c6ccbe4df641296e1e9b67fe6d0cd23669e73ac5bc4b5fc33ad4ecd",
+      "entity_count": 32,
+      "file_path": "crates/scs-parser/src/parser/bash.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "cae6eea13bb363e69bafa66d4950536118aa82a0",
+      "content_sha256": "68921165476bce8790d0d13cc168f86c4c47df6ca030be5a6fa72d7ba2fc760f",
+      "entity_count": 34,
+      "file_path": "crates/scs-parser/src/parser/css.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "5289f9d19a157796ac196efa8bbd2bdf88fe0ecd",
+      "content_sha256": "9628e62202e7d7088076826d73b70f3aa7ce87aa850544f7a40281d9338688cd",
+      "entity_count": 48,
+      "file_path": "crates/scs-parser/src/parser/elixir.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "b70ea6ed9ed34c1eace327a92bfa4a587707fbbf",
+      "content_sha256": "8f53d8cac793e114d7cd305571a2d15b4cd5e0248d637026842f00b7b1b56737",
+      "entity_count": 45,
+      "file_path": "crates/scs-parser/src/parser/go.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "0d33cff9377a498c74fe20821e3c638f37f1777f",
+      "content_sha256": "560369163a404ffeef61a43c28dd2c9b55b99906a7cf36273ff324931658ce21",
+      "entity_count": 28,
+      "file_path": "crates/scs-parser/src/parser/mod.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "267bf755a759025883bedbba88adac37b2dd854b",
+      "content_sha256": "c4b345f83c9f485a37daea7615faa0f81bc10da19a36dbc1bdb163915ea31fe0",
+      "entity_count": 39,
+      "file_path": "crates/scs-parser/src/parser/python.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "96b5492152766195d7985eac926ca2df4d1adfd0",
+      "content_sha256": "7a3eac66dafc2cbbdee285f20132766ed61919a3788dd7873cf17dc61ded006a",
+      "entity_count": 23,
+      "file_path": "crates/scs-parser/src/parser/registry.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "57ad17c76878686dd4366a23d02adc9b1819b463",
+      "content_sha256": "191538c081485a97da91d5bd083e0e4bdf8e2121d7ecf3aa43bc4705829e2414",
+      "entity_count": 47,
+      "file_path": "crates/scs-parser/src/parser/rust.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "f37cde01ec6882eeea410168fc561109ae38c690",
+      "content_sha256": "02cb631ab8ceed672674687edb471d2452c151bdd2bf41b34641bd4b28d7c03e",
+      "entity_count": 40,
+      "file_path": "crates/scs-parser/src/parser/swift.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "4c154120195060548e2d4877e7c4da328bfab1ed",
+      "content_sha256": "718be85a97d4f5958f17a25aae71e012d79622f264bf698d5575ce7e5b5b9e61",
+      "entity_count": 37,
+      "file_path": "crates/scs-parser/src/parser/typescript.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "80a08b6a9569bd71fab5097928d3b08b20dcf0c1",
+      "content_sha256": "f37a9f96e4a29257a666175104f3ba7c9f76d11598d0a1e4b443b19b934c8471",
+      "entity_count": 1,
+      "file_path": "crates/scs-python/Cargo.toml",
+      "language": "text"
+    },
+    {
+      "blob_oid": "c9b0f93e66fb33e29c7487075ea75cb7ef9282cf",
+      "content_sha256": "5b6c766e82c578c2df84a76ffa9003ceb398094cec1d8443171c848f95eb99aa",
+      "entity_count": 1,
+      "file_path": "crates/scs-python/src/lib.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "42b2a04853ef25679fecff3b07d5d640fc1dbfa1",
+      "content_sha256": "11438479759e148fca07e5e333d75353ae7ace7760377ca2caba7862b4d2144b",
+      "entity_count": 81,
+      "file_path": "crates/scs-python/src/python.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "aaca2330c446568111e7e8b226206259ec67bb80",
+      "content_sha256": "d0a196acb5e5674ba300b3a6d3c1897bd491d42402a70b1043ca31e4f923b170",
+      "entity_count": 1,
+      "file_path": "crates/scs-store/Cargo.toml",
+      "language": "text"
+    },
+    {
+      "blob_oid": "bab8be00448f6e5c6bdc069e65d4a1853611702d",
+      "content_sha256": "9d1fa2835cdc056c5e39300f24c604b4323cebf140e34927d720026e3aa8df73",
+      "entity_count": 6,
+      "file_path": "crates/scs-store/src/batch.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "b010e8458a60dc7a639578bed05d88eabb2fc9c5",
+      "content_sha256": "4efea1d9fbe3ac76ceeb4ae9d7cb6dcb1dea38e997a1083a8cfab766b724d26e",
+      "entity_count": 123,
+      "file_path": "crates/scs-store/src/graph.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "a66ee7571790ccfb9a0e8692cdff4474a243d42a",
+      "content_sha256": "51ab032fffb1db54896d0b257b3e6109a309e573a6721969a8f868975ae0b766",
+      "entity_count": 5,
+      "file_path": "crates/scs-store/src/ingestion_files.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "30f8b874285cfd7c7b787b33d3f46220be222969",
+      "content_sha256": "9e9bda5bbca20659e65290304f293f8c20030c437053cb7972e98df1b00f181d",
+      "entity_count": 5,
+      "file_path": "crates/scs-store/src/lib.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "a1468d4aaec462a86f69c14599439476d5090e48",
+      "content_sha256": "d9a190ffde6767264495219127117a6cb2f175296c136b825fa0d4825c4d7c14",
+      "entity_count": 61,
+      "file_path": "crates/scs-store/src/observability.rs",
+      "language": "rust"
+    },
+    {
+      "blob_oid": "6af627673cd6810d127d4b90ed0b7abb80f6729f",
+      "content_sha256": "576b5c64044afd279e3542ee6297b91b3ad9ddfc00c490d56771ced06ce2860e",
+      "entity_count": 1,
+      "file_path": "decisions/2026-08-05-enforce-strict-python-types-before-commit.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "9222975133cf37aae6f561899cb5a523757e75a3",
+      "content_sha256": "b30550d141b6e1ca9567305a0f8c059262efc7d6c3e5d06241adde1b1353ba20",
+      "entity_count": 1,
+      "file_path": "decisions/2026-08-05-keep-semantic-enrichment-local.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "76f295d37df251dd4e67a8926088737e9b54ae81",
+      "content_sha256": "3f912a0b466ddc433cd95f0517ebec694a4a7c3c3d68f9f38fa226ff307cd936",
+      "entity_count": 1,
+      "file_path": "decisions/2026-08-05-reduce-mcp-tool-footprint.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "9c7a0b78a25fed298429503e515cf6edc04b0032",
+      "content_sha256": "f3890e33352b419f37f4f23ff9f68ac908ceeec8dc341d3ffba88b46e7c4e33d",
+      "entity_count": 1,
+      "file_path": "decisions/2026-08-26-harden-mcp-tool-contracts.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "e75c02db1c0391f65541d2adf477511284d06814",
+      "content_sha256": "aad9263a0f14f65f44f823a9b7e3f17529a167f2ad5c009dbdacb2f761ce9f36",
+      "entity_count": 1,
+      "file_path": "decisions/2026-08-27-batch-committed-ingestion.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "10b0f9e400c72c84802652fd90858b355afc9c24",
+      "content_sha256": "51557505965c42f9f82682fc42952e1449a4723e6d4a935f0dcb0f15f7d1d100",
+      "entity_count": 1,
+      "file_path": "decisions/2026-08-27-isolate-project-stores.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "4dc97cf1190e8e9bda54c687c097c08a59349859",
+      "content_sha256": "129e98bedd4d30b63335733d35d22d5dfd5008b7e1e6431cdb74e3381af32722",
+      "entity_count": 1,
+      "file_path": "decisions/2026-08-31-index-unparsed-text-with-layered-pruning.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "3355d159add6772570ebf12ef5f7257ea87451d8",
+      "content_sha256": "f68496fc65724f3746192076707cfb3188aa620cae735bc413d1e8d5677167a6",
+      "entity_count": 1,
+      "file_path": "decisions/2026-08-31-reconcile-enrolled-projects-from-git-state.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "24403d1b83dcc1ba06d5ecf80b8b79f37e719557",
+      "content_sha256": "bf66d19c9e484e5c7ff659e9183c6fb915d1733b96abacf397e005212a1738c8",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-02-schedule-semantic-repair-by-node-coverage.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "981811092ae6345accb009728c2f01ec881432ff",
+      "content_sha256": "912326190d1582c679766e9e1e624131e5d29c65be062a539792cff6c8e65242",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-03-default-to-configurable-openai-embeddings.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "8ce4ab01bc3e860c416b953f71b5876cda9130fe",
+      "content_sha256": "cb739c102d5bec585638a5b6a978cf6fe80902129550b4d25f6370d412c80ad9",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-03-secure-reproducible-release-installer.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "2a206677bfd91cae05aeaaf4e784ff6d99284323",
+      "content_sha256": "158e9ceb22126ab0095cd2edd367e0ea4f0bcfdacf5362b2b9f590f8a7fcaea3",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-04-adopt-mcp-python-sdk-2.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "06fa1488f9da5703d0bd9efa4913b0059b198a51",
+      "content_sha256": "29f1f61f6ed3b98feae62906d8deddd79b308774e5718f1a1e7fa13c218eeea5",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-04-enforce-standalone-product-provenance.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "a2b1f71275e64bbdb0987009fc44352f12f76e77",
+      "content_sha256": "3b726f49d0dc91d457369ed6ab483997949ee4cc49b95a304485d4a2895a8ea5",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-04-keep-daemon-live-for-durable-jobs.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "08ac1031a79d04e2dbfa58cd8b4c9d97f3860fa2",
+      "content_sha256": "8b8780e57e1787921c21a9cd890525fd64c38270560b99452e0b61f3fe12a1d9",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-04-review-recovery-and-tsg-upgrade.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "2e8e5aab7e96962c6ca1014bfd7a6b4e47595192",
+      "content_sha256": "c23c6908322af9a623b4a6ca8d4e4fec16f36a9a14d382d560e8433f06c7efef",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-04-use-lazy-stdio-mcp-daemon.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "310e345d7ff261fe90b91dc03f098b9805ce9880",
+      "content_sha256": "ad1c499695bcdb4eb4744d81f8f0bba595084d9a9eb0d43fdea1b32d84bee5d5",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-04-use-tsg-as-storage-authority.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "d352e70e7a55a1e91e1e5dadb9577ec161518000",
+      "content_sha256": "26f29d23ff8e89207c8bfabbb806295814a45d542828f7c1b118393627926bfe",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-05-bulk-ingestion-replacement-deletion.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "4a6819ea7804b468fd1c07d846cef737294cf2be",
+      "content_sha256": "9843e32fb5cc2c99b86950b6446ef9944e4b5ff50caf4f68910aab1411b047dd",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-05-consume-incremental-vector-updates.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "53476513b1139d2c8059243b73665f6c0cdca073",
+      "content_sha256": "ea1e113a45364d6acf973f37a454956ace430c5191d4f9199d97d34db2d83c7c",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-05-distinct-entity-occurrences.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "fdff2a6faa1455380570707bc2682ec8ef41b381",
+      "content_sha256": "a08b026497b6d97181d05b0eef75003b35d3491523d71da6acc6fd4d2b8af6b9",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-05-preserve-source-alias-identities.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "f029bef154776397567190404adcab884056f484",
+      "content_sha256": "8f9a243e7807c31f2014e800a8f9bd3b62c60780e396675980d9e8ed4f02ec4c",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-05-share-source-identity-validation.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "12d46f5764811c6312f3378de852d66209265a5b",
+      "content_sha256": "5b93584cc748697dc85032507faf57155b46cf79770f6976ae5a944577996976",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-05-trust-explicit-omlx-hosts.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "4c53bf58fb488e5d7941354a36e9980c497a335e",
+      "content_sha256": "0152723552996133ef798a13a2fac9dcbc4c5d262943dbca53f79e8220fe9ef5",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-08-activate-reranking-by-configured-model.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "9bbf124f706dd5c66b06363591cbcee3af5cfdf7",
+      "content_sha256": "c3257c9b0c03b85b23dbae6b6ed729f8759debf487e66237e183bdf5e4ccfcad",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-08-coordinate-upgrades-with-daemon-ownership.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "0fe754430c737452a6a054623f75d4f142f5d0ba",
+      "content_sha256": "7410312fa090b0c0f82c085ec9e9c68a6b46198987244bfd18ce08f67b8dae95",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-08-use-hybrid-reranking-and-versioned-search-evals.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "01b9403b4299d45ac512ecbfe257fd36e8cf6fc7",
+      "content_sha256": "281fae2a764f647032f1a58f722f8da6940acb74a36b793e1e3905e17a60af29",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-09-expose-durable-repository-deletion.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "4b1747b4789e3c44b00e8d669cfc802b2a374b21",
+      "content_sha256": "a296a4af2567f62b43374b6e2f77beb82eb7aa1402a7adbe6d77089992494a9b",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-14-add-evidence-driven-agent-contracts.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "5752e659f43f4aa89067af2d0f8ad18703d47caf",
+      "content_sha256": "e3dec12445b6e7406ec1ee95a4198ec156f1fbd82f219e9d2dd3c236b1ebdeb4",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-14-global-scs-first-workflow.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "938254c721525a96c6acb222e0176f1624cb7c43",
+      "content_sha256": "446cdf94c779067d5fe78e14af5bf5ba012772fb370c743ddde92ff0bb1a5a6b",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-17-graph-read-availability.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "081c24a3942737544eb6206e71be914f5eed2f4c",
+      "content_sha256": "4d3930a9747a191b7427a23d6c20e8fd5a25bc4f5f35af63d960e773bf984fec",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-22-unify-agent-code-queries.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "481795526466a9d6bf5679e649a80067c2be1e1f",
+      "content_sha256": "bb885889bb11afdb30e5c1135dabb039a21ab23a424c088b015799fbdf149174",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-22-use-openai-compatible-local-inference.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "0d675af4a45e2c026c84a2f26dbd109c45e062cc",
+      "content_sha256": "3427f1732c4303bc28173fa46c476c5423758e14f06b4207ec55f070cff1c1e9",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-23-gate-daemon-readiness-on-classifier.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "060907fb138052cfb6c953a373d53646331b1163",
+      "content_sha256": "1ef4b76e7264c81c831d7f48c0a74f46e16d585b1e80e7509360ba75e91b5e13",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-23-use-native-mlx-for-query-routing.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "cf397e4898672fae869769da7d00dd5f36a5fe55",
+      "content_sha256": "d36cffee6f474cd96d6f598804f35a7cb230d5f80c3e03840e96a39abf45e7a3",
+      "entity_count": 1,
+      "file_path": "decisions/2026-09-25-use-external-laya-inference.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "74d2ef292029801415ba1354336a531b622a3820",
+      "content_sha256": "888729cdf64d138e133e836128a02f169c6b049155fdec051a46788b985ec9d8",
+      "entity_count": 1,
+      "file_path": "deny.toml",
+      "language": "text"
+    },
+    {
+      "blob_oid": "64eadeff973c9b7f2fd122977f501d64e64f5961",
+      "content_sha256": "3a4cdc7aa3c81df7cf3859fe69aecb1be36e36ab549b70c47dc8dfbb9eeb2fbf",
+      "entity_count": 1,
+      "file_path": "docs/architecture.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "95a0c7babb3c557b8cecb38ca7fa866bd367cc9c",
+      "content_sha256": "b3c9032e8a5aab394e0c012c740c4283af3922f792364f43a0def7358a436cac",
+      "entity_count": 1,
+      "file_path": "docs/codex-scs-usage-analysis-2026-09-14.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "bafa374fee0339a2050c3ebdee1ed2337e368fcf",
+      "content_sha256": "45e79b680b4f463de5407021c99408c1ee208263e922b98ca6bffcce4d69a433",
+      "entity_count": 1,
+      "file_path": "docs/codex-scs-usage-analysis-2026-10-28.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "e40ca20c9b03f9f575f50857aa716a3023e61c2e",
+      "content_sha256": "f95f900db863eb5cd2a8c1d6649009dd2460e8b5e265186794b49372597866ff",
+      "entity_count": 1,
+      "file_path": "docs/configuration.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "ca996015ab9985ea7d9834109b42d82bfeba54d9",
+      "content_sha256": "070ba19dd6893766d829103d9b4a08fade4c34330a533fdc8a6ebe98910c4a13",
+      "entity_count": 1,
+      "file_path": "docs/decision-api.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "910e5188b4dad933afd091f281994ff3ad71124b",
+      "content_sha256": "20cb072f21b33e3ac2c755e0b14b603250a6fd81ab776318683344ff71fd1b90",
+      "entity_count": 1,
+      "file_path": "docs/github-releases-distribution.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "e5dbe05bce4d2fb91e6cdaacebf30581eff318bd",
+      "content_sha256": "d21a9a856dde931b33e9379cd372ba416c03b2bcfb3840bb764c73e97f2a1d79",
+      "entity_count": 1,
+      "file_path": "docs/indexing.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "21f928a1a0e2bfe0aaaef3a16640e40f4fdd5e24",
+      "content_sha256": "05613f88ce0040953f138d958aff7aebe43a6144f7bcffcb78c5e0c062486b90",
+      "entity_count": 1,
+      "file_path": "docs/mcp-tools.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "8f98d47db8a337af4ba71d178ac2f3e8bb183268",
+      "content_sha256": "dbbfc6b29c2b8b6c2fda4ee2d7b933e30c0dee4827eedb07d6dd31c2d8fcf0e4",
+      "entity_count": 1,
+      "file_path": "docs/query-code-migration.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "dd4faf14117075557f14d1fbc47d034fee6b071a",
+      "content_sha256": "21a4ea0e2b4045350c4da914821fd105c9a386d95d5c5d1b8dea1f683fa907e4",
+      "entity_count": 1,
+      "file_path": "evals/README.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "3b4fe1dfe19cff3b255646bd62d9f4fa27379c45",
+      "content_sha256": "7a7cb0353bcbf6e593090510eae0bc280182414de0c6a6269108233abf3c49a5",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-09-22-laya-balanced.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "882abdbd1bb7aa39cfcb0bb5dece92cb34fac0fd",
+      "content_sha256": "1ec5cda53deb49e58f7ef2822a9266aadbee8e66e90e75a53aa2b8ed389c22dd",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-09-22-laya-fast.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "a599f6e7213ecba1236be385537db5aaf8dce84f",
+      "content_sha256": "e65cdc5869e4668727ebe2a516af43f9e56748baf1ac347e1389acae92c70efa",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-09-22-laya-thorough.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "a2afe76aa213e02a354f3ff381c86a88749ef4e3",
+      "content_sha256": "ab14099e4db570987069929e59ed1daf82dd66f36ce9f653676410637337fc53",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-09-23-laya-mlx-balanced.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "dc7c304b4b2122bd66733f88c3175b112822914e",
+      "content_sha256": "70c30e7b0a0eec3285727b5959b120f0311e2c5899f97500fd2517ca50cb5674",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-09-23-laya-mlx-fast-restart.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "512c6fe6037907276788b151c6513adbb33f83a5",
+      "content_sha256": "a7666a3546603aa6599e2c8ac155f1cf8981798872ab873dd3a97a3fd2a43a48",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-09-23-laya-mlx-fast.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "2420b6c67322b947f74958ac3ec4e1fed056b660",
+      "content_sha256": "96fdc6bf6826cfabc2d9cdb8d1e5ca4dc1c25b3b022e7ca764ed7922f3e3d32a",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-09-23-laya-mlx-five-tool-v2-balanced.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "ef005ba7457ec44640fdfd2d8d8edbba8b306a26",
+      "content_sha256": "ef77370a9302a0798b06fbf28fd5a46b1342355436f31014d175b2e71bbaffea",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-09-23-laya-mlx-five-tool-v2-fast.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "4f8f7345a5e19e578d071d8f418c6ac018d0bf0e",
+      "content_sha256": "fe202ff6fb704b9bccbf3581ad66f4f73034e5979a091559c88983ca77f895d5",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-09-23-laya-mlx-five-tool-v2-thorough.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "3d86b4d84e3ff6824fff363e60d30333251c99d1",
+      "content_sha256": "75c6e3c602d1425776caadc9c2130e298854876c5abb1bdc84331e9946a16bff",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-09-23-laya-mlx-graph-balanced.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "3db227f805e6cac9912639b7673e23700cad030f",
+      "content_sha256": "5cdfb4cb9e6d873a443f9ad863fcf696d1c6ffa1fd951edaed1bea736d341788",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-09-23-laya-mlx-graph-fast.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "5fec650eada1137735540203ba792a640a540efc",
+      "content_sha256": "28555342f75f9ebf3d277af446350991ce752d10ec1ede2b0e10514d409899f6",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-09-23-laya-mlx-graph-thorough.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "65ef1aa22a0e006fd68be8028154672d0b94420c",
+      "content_sha256": "4ede222c6d0a7385dcb111e55f750a0e4d2dfb66b1f37df461cba142f01150df",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-09-23-laya-mlx-judgments-v2-balanced.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "8d704aa209089952000e6a695691edefd6388676",
+      "content_sha256": "679a2225fb7bd0a48767fcd26eafda1d1e4401c3f0fc3c0ccc0eca61cd5228f5",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-09-23-laya-mlx-judgments-v2-fast.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "bdb0232c5e2037f270ac736721d02e5876dcd3cd",
+      "content_sha256": "68f0575c595a9a27cac019d369c22067212daa9d425bb7998f6ef17d7ec0566d",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-09-23-laya-mlx-judgments-v2-thorough.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "94c35ec32f1b92c3291799423ad8f268b0bb61a1",
+      "content_sha256": "8a05b517a685d6d974b654056eb874fe66a0429e7f9c2d04e9a3882a94e19d10",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-09-23-laya-mlx-reference-routing-v2-balanced.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "21a3c971bb3473525ff9632983c26f157850a84a",
+      "content_sha256": "8256505bf903cb7d1e6d4ca4e279ad67172d398a13a95c03e2543664fc1fbc9c",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-09-23-laya-mlx-reference-routing-v2-fast.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "27f44c9ba974d688840cb7cb8025bb95fd306d4b",
+      "content_sha256": "ca16f1d0d96c6e184b98959301be0350e7b008201ff7968e0a62ad9995f70a6f",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-09-23-laya-mlx-reference-routing-v2-thorough.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "48a063fd50e040152738b72f213e7e390fd6841c",
+      "content_sha256": "737b112272a3f86381ae02674bec485366fa724bc21d30fe700b314578ea8bce",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-09-23-laya-mlx-thorough.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "b96c22351ed81d794e595b34865b315deaaaac68",
+      "content_sha256": "bcdffac504b57a541cab1c8615af73bb6245209cce7fcc7be544e92d912e218d",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-10-09-final-query-v2-balanced.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "cf691a35fd128013c1ac4e792b5e80ad98db4558",
+      "content_sha256": "2e4c956bb06dc6b07abf3b5db49a7a5d95fc3a7e7399eec5a3596da8788b3c9f",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-10-09-final-query-v2-thorough.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "9bf3ac8527f83daf1ab77007a28a7f2ad5ca45b7",
+      "content_sha256": "9e6f9858e868bb37bcab9d8892a39ec600e8b8e8b2a2a4b157dffb85056e5147",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-10-09-final-query-v3-balanced.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "d76fb6469cb6cb167c3f6631b2f553df62c59ab6",
+      "content_sha256": "5d04b13996003f5ad7b6d93c2c7f767ad6bce73cab5a4a57150150214ececf99",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-10-09-final-query-v3-fast.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "efc6d145578f84b4ed3a6d2bd3363409591d0c90",
+      "content_sha256": "cf0f0f342f3e3429d6935c52c0c343a1377a38a2a698f748f8867d0c30f5178a",
+      "entity_count": 1,
+      "file_path": "evals/reports/2026-10-28-review-v4-balanced.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "da48b81f0a99e93e770d82972abb708690318488",
+      "content_sha256": "4b2ef2cee49c8cc3a22c11e4f420f35db6d5b5069a18d4542287eddc2efb0836",
+      "entity_count": 1,
+      "file_path": "evals/scs-query-v1.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "4d5358a0ab221443d1ea252861e9a646a2ffaf79",
+      "content_sha256": "5c9cbd054b0388363a191bde21195c3aa37bf0c397ab266527eba55fa4c20e3b",
+      "entity_count": 1,
+      "file_path": "evals/scs-query-v2.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "eeba0c93f41df00a5598502ce246dbbfec5955e1",
+      "content_sha256": "a42ddcace12d5fbc20c41b196bf1befcde31625e18a900c39556dbffd34cbae7",
+      "entity_count": 1,
+      "file_path": "evals/scs-query-v3.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "0acaa75ebfff2ce162bcb78673a0e640457e9990",
+      "content_sha256": "b22f613bc213931d463e8cd287173cb0f4390f410e6225c59cd2d301af5d9271",
+      "entity_count": 1,
+      "file_path": "evals/scs-query-v4.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "c673c10a7a2d30f47216988b72a861e088b46b85",
+      "content_sha256": "f3856591679cb495b9a83a25b3e14b8e4c92ec01b043d07b6a974bb0a4449ec3",
+      "entity_count": 1,
+      "file_path": "evals/scs-search-v1.json",
+      "language": "text"
+    },
+    {
+      "blob_oid": "12ebfad14b918f06c30019e80b2c5af2d232022b",
+      "content_sha256": "c255b1effc03fe3c7499819b7252844eee11aa33332566b6ffc784f3086fe89e",
+      "entity_count": 1,
+      "file_path": "justfile",
+      "language": "text"
+    },
+    {
+      "blob_oid": "527eb338b428b755236d49f32305474a4fe0e502",
+      "content_sha256": "39834761767ba99d91a2edba51b0f9135e96bf487a0faff57f133ab9d1d169ee",
+      "entity_count": 1,
+      "file_path": "pyproject.toml",
+      "language": "text"
+    },
+    {
+      "blob_oid": "9c66312c90ca38239373221eeefe26a70fc146a1",
+      "content_sha256": "458ac2753892daca24bcca6a05a5000555dbb3187d9907ce43eafaf9a2320d6b",
+      "entity_count": 4,
+      "file_path": "scripts/build-native.sh",
+      "language": "bash"
+    },
+    {
+      "blob_oid": "e4ef4815060f1fc5b93d56e8eb502e1335b91c12",
+      "content_sha256": "64266948fcd4aea343fc0c219fb2fb262a4b89106a142586272ce6ee5db63124",
+      "entity_count": 9,
+      "file_path": "scripts/check-release-version.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "935d1f10652004ebb38470a86ce797a7dd7b47fe",
+      "content_sha256": "54107684048101c479ac160188cc9cdbf14b9e1d5919a98dbd5fafa7af63f4cf",
+      "entity_count": 18,
+      "file_path": "scripts/evaluate-query.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "a18445570ec33bd42c29a484cb7fd43228ab293a",
+      "content_sha256": "f019fe4c21e005248240e6c642f42b0232bc1de7707c26aa1219449ebe71ba00",
+      "entity_count": 18,
+      "file_path": "scripts/evaluate-search.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "ed635d29ef77ef20093cf4472c699f146843d9fa",
+      "content_sha256": "1035112c9954f7f83eb9cf3a7cd0764d36f8a1c40f485e9dd5ac7485ba5e7e66",
+      "entity_count": 14,
+      "file_path": "scripts/install.sh",
+      "language": "bash"
+    },
+    {
+      "blob_oid": "f5225e53c5852367427569cb3c8aff29323da6bc",
+      "content_sha256": "135b256d57b8a8db469e73694d9c08a2d96d8904ffb3be2e50a6b9f1b53761d9",
+      "entity_count": 15,
+      "file_path": "scripts/smoke-review.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "110dcfe36891c5370cd0125f5c01b9e1efcf641b",
+      "content_sha256": "dffcf89493773e1a77906e3cd7a12b120f6958a26155301134f41eb13348ad01",
+      "entity_count": 2,
+      "file_path": "scripts/verify-doc-links.sh",
+      "language": "bash"
+    },
+    {
+      "blob_oid": "254b57f62bb22f568ad1d30d0be665cef9df3f76",
+      "content_sha256": "7daa24a18aba85bd6e5662317dc053b2e2cb2c4608aeb6759bc2e1f651b5113f",
+      "entity_count": 1,
+      "file_path": "specs/2026-08-05-expand-risk-based-test-coverage.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "fc858de44a7c34e3704c0b25badbc9766714ece3",
+      "content_sha256": "871265e09bab76e03443eae236b3259ce7dfc2cff49f791d12db0c3027c28cde",
+      "entity_count": 1,
+      "file_path": "specs/2026-08-05-retire-file-summarization.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "bec6e98c02bf04839cf50fe456bad4a1dba14805",
+      "content_sha256": "344224f143789362ddddabf41e2b8cb1e84a6c93755b2e694c582e6c7fd028f0",
+      "entity_count": 1,
+      "file_path": "specs/2026-08-05-strict-python-type-gate.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "9ea26f31cab59849f5035c1a4e8570f9852308ee",
+      "content_sha256": "e9ab540db0c382a7ed5670961a63a4dfd0542cbb202fa81ac50a6ff140f78ef8",
+      "entity_count": 1,
+      "file_path": "specs/2026-08-26-evaluate-live-mcp-tool-contracts.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "bd6fcffd6247e29709913898255902ac983dd9bd",
+      "content_sha256": "02708e0b182a629b774533552d65b6d1a0aca58a0fa686242a36fc22ee5ed1c6",
+      "entity_count": 1,
+      "file_path": "specs/2026-08-26-harden-mcp-tool-contracts.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "ab0ba8e3ef98a5a8ed39f4ca6eebde8fffceaf64",
+      "content_sha256": "51c317c6391f7b0410a4c21a4fc7270210d9133df6f7d686d891d679095c0db5",
+      "entity_count": 1,
+      "file_path": "specs/2026-08-26-index-local-scs-project.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "4c37d834e71f25c691ee6384f78083f324141b8d",
+      "content_sha256": "cbbb95f01da8cfd8cb35979d2a11a61e069064b03c99703e232db4ba91112255",
+      "entity_count": 1,
+      "file_path": "specs/2026-08-26-mcp-tool-evaluation.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "39c5b18d6b513a3cdcd05a0ec258d19827a9729e",
+      "content_sha256": "21ab85d0639a627f1b6f746b8bb4d0129c62b578435599ea48234402186eb508",
+      "entity_count": 1,
+      "file_path": "specs/2026-08-26-reindex-scs-with-omlx.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "70f9d638a0b2865c12a0c675c43badff0c4cd404",
+      "content_sha256": "5c9f151b4528b492fa4e4587e0b587c17f13d2c787de1734ecf61c610217cbed",
+      "entity_count": 1,
+      "file_path": "specs/2026-08-26-setup-and-start-local-service.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "f31544913602e389e3a987d84bb3cbc426ee241a",
+      "content_sha256": "4d2159f266785306be4f5ba49b6eee07468d10942ec0c05f6010dbbcd18f6262",
+      "entity_count": 1,
+      "file_path": "specs/2026-08-27-isolate-project-stores-and-migrations.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "bc745d9294f34118ec0e172c03a6b48a6fb9809f",
+      "content_sha256": "dcebceec361830ce63d9a9cd653080f41951ddc4059b231cb43a760e877895fe",
+      "entity_count": 1,
+      "file_path": "specs/2026-08-27-manual-acceptance-project-stores.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "3042386aea1a0d74f8a7546b6f4d0e084494e027",
+      "content_sha256": "f5a9f399a2af5848fa54459cb0e199e510bf77be6af79be781250cedca38b123",
+      "entity_count": 1,
+      "file_path": "specs/2026-08-27-resumable-batch-ingestion.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "a3c1b564ea097b109ade0e78d616f06e90a892a3",
+      "content_sha256": "3fbe0ed5c0f9f6da7cad89caa8f106bd2db67884d6419e17e6fc2b3a821d5259",
+      "entity_count": 1,
+      "file_path": "specs/2026-08-27-use-local-omlx-embeddings.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "53c3b88a7c283f9f92bd52e89ae27e0b33a8eea0",
+      "content_sha256": "da4686a40bb603be0cb501563ea430453892c3e9a78987ebb8e2d0d03f252ae7",
+      "entity_count": 1,
+      "file_path": "specs/2026-08-28-package-scs-for-redistribution.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "d6e88a0f61c07720e42dc5f6c39158dfc1993888",
+      "content_sha256": "ae843792c5f3a877233e82dd294e74516f68a0bc640e9fdeb92fd99051c6ecc5",
+      "entity_count": 1,
+      "file_path": "specs/2026-08-31-git-aware-automatic-reindexing.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "94b1eca9d91d037f8bbae9364f611d8c642ea919",
+      "content_sha256": "351e4a9fe7a7f91f313195f9e0fa169ac25f66001523e70eb01abd2c8ec32bd6",
+      "entity_count": 1,
+      "file_path": "specs/2026-08-31-text-fallback-ingestion.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "945452b3dd5dedd69084d8429e73e9f3f1c2150e",
+      "content_sha256": "05dd0ec2c752dd756ccd74472c0f9692e2dfcb4414f54f161ea974d727b88ba3",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-02-configurable-embedding-providers.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "5760326c698bea5f62eaf722575795827b806ddd",
+      "content_sha256": "f6d41342b01306a6caff8fa0ecfdb01c9dd5de3a40ac3cb185b3eeff8dfaaf79",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-02-missing-embedding-repair.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "f2c8652af52d95f981b805ae06b2575eaa99a0e0",
+      "content_sha256": "89521c1c7fb6c1edc312fdaf9acc2892f65273ef75754b251b48689d53ee52b0",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-04-clean-release-installation-validation.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "03b1cb1f8c8ebe5c2ea21155965c73a482bd867b",
+      "content_sha256": "705774a8481b4ff7860903e4ff558e48ee9fce7ed5f09e6bd7b145ce643ac4a9",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-04-lazy-mcp-daemon-and-github-release.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "c7acb2d42ba3a08bd01729898ea91e98c815cc94",
+      "content_sha256": "55a1bdb6fb159bda51da8936beb2f3902381ace8b15e59076dba9792205d9500",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-04-remove-foreign-product-provenance.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "4a02e6c14ac4a29b16ea32fc313a510c8878fe21",
+      "content_sha256": "b603bd9b87ac6c3a733a8d04f5b355f37f468d0ad7da0a825b8a93cbfeb6d240",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-04-review-fixes-and-tsg-upgrade.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "66bbb035cccbd739b3cbe47287f3a61b33006935",
+      "content_sha256": "6ef1c8ea475e94fdb85f89f1d40fd26dea2661412386fedbb85a680fdae45d66",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-04-tsg-storage-integration.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "cd434dabbd4631f4463e8366b49d5487e8f2b5cd",
+      "content_sha256": "912870c7f4499d30e19ac7a9788634950aca872db486e2d9b0f58c7e2bc0b7b3",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-05-distinct-entity-occurrences.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "dcfafdd013ff6368d2844ec31dccda020f88b5c5",
+      "content_sha256": "ce1f54241cd3f52c1a747bfbaad85122f9038e0cc558c736c48f7af0004a7f01",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-05-remote-omlx-codex-installation.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "054bb4f819a8d879a1900dc8ec8b3c8f14311f73",
+      "content_sha256": "7f0ea748e209fa86920b81de1fd87d632f87ea397f31e0a982c8e9a37c3a360d",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-08-configured-reranker-activation.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "dbd0b4b246f8cb761bdfcdb53e17d7e87e5e00d8",
+      "content_sha256": "3a7ca7fc8169d876f50d9b614ffd3bb8baa129bce4d6546b98fc0760646125f8",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-08-hybrid-reranking-and-search-evaluation.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "ee56c7854389f9a8292e1c1f99c9b7fa9e805fe3",
+      "content_sha256": "29794329f7a8e8de312e07a03b8028c81e4bf2a448198103792286fc95ddea7f",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-08-upgrade-safe-daemon-shutdown.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "279aa04db50a0d369b986ce2173039cbb1915723",
+      "content_sha256": "3ff9861ee6e214e75272c2a2c674845f6b04a038563b88359cad58ac9c58a553",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-09-delete-ingested-repository.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "bd0bccf0039c0ac3ed3e7adf2205a530042996e7",
+      "content_sha256": "165368d74b5765f3cec9621f2591f84115f38c8a19c9a7008319e3f71908d70a",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-14-evidence-driven-agent-workflow-improvements.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "526282fcce5dc4582ba05a6cb99b6655e3695d9d",
+      "content_sha256": "0cae2125aa91e16fa3f31ed85ae29b1c19e9c164de2d4ee1e531b5cf850d59f2",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-14-global-scs-workflow-skill.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "23967b5f6482f3cb0b1354a3512437e078596458",
+      "content_sha256": "5a1c182671144f81964f3768a13ef6ee51702a6d43c788548471067e33a6e782",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-14-release-0.1.15.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "d0880678654074d362d5046a8a911c2a77c263c1",
+      "content_sha256": "61bb530dfdf08b8fcf4425b366e45708eba735667fa32cda8ca1d4186cdfdbd8",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-21-go-ingestion-support.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "cc30ff20fed3acb51711207be2e069738b28e07d",
+      "content_sha256": "34921a20ad9448ec8cc83973188f2c8fd7037cc26ea0d044c612cf114c35f56c",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-22-bound-embedding-requests.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "8e7e479a5be9659d635c2489de417e7634efdfde",
+      "content_sha256": "8ee5752e0a793ee8d05393f4ff2e57fdf8be31f59dec06666a4a217b072f833f",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-22-project-lifecycle-cli.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "8f48548bdce28c1703fad276cffaeeb536f7b906",
+      "content_sha256": "7e79ad160f95bd66bd7c2174eda9d6fd435fd7be797f45ab31c39e62c828e63c",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-22-read-only-project-list.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "fa9c4f3ee748ab071f9c950afcaa4e64f61a605e",
+      "content_sha256": "59ebf14da10688603283362e823543994785dc5ae5f1f0fff5533d7dcbce9aff",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-22-unified-query-orchestration.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "0012cbf809bf14ca43723b369b8a0ec9ffaa89e4",
+      "content_sha256": "3718a72e759469d340217ffd5d25bcab5610ff5451e50acc39bc7a1d8f7fc5bd",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-23-classifier-daemon-readiness.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "666891f6f16354f0f3cdaa2e2c17db302670eea7",
+      "content_sha256": "f33f6ffb9a77d66b41b9f044a02e82adcb9103dcab11060f3c8ba6ef872bb86d",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-23-release-0.2.0.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "db0a5c65e483f955393eb2c3953d05095caab095",
+      "content_sha256": "4e6089966b425a5c6262da42fb038dce8cd88d6db3f9bfb9dd5c70d12a372b65",
+      "entity_count": 1,
+      "file_path": "specs/2026-09-25-consume-external-laya-inference.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "81afa1294a9b5c6e1f4bc7505cfdc31876f7ac47",
+      "content_sha256": "c857ec77e662b558b7111b8308b8cbcd54ef0684c3d8e9130a292cd1e01ced8e",
+      "entity_count": 1,
+      "file_path": "specs/2026-10-01-release-0.2.2.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "8603fc680f82e5cc35bb0acf09fbde01b948014a",
+      "content_sha256": "d74958910e9bcfa549af448ec5f7fb46876455d579c75d3c69f86e8f88d30b97",
+      "entity_count": 1,
+      "file_path": "specs/2026-10-01-uninstall-cli.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "65b47943935df8797cc2c7029b5e5ed04ac57147",
+      "content_sha256": "bb0d1637f7d83ff52c8d3749d27b2fd8273ed0a648403026ef3807a55bd1be38",
+      "entity_count": 1,
+      "file_path": "specs/2026-10-09-release-0.2.3.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "267532da484cdeaf4ecddb57520f6a4f6a665d98",
+      "content_sha256": "340638102bad841a47c8244889575633381b83260e00e82bc09d2d6e02013069",
+      "entity_count": 1,
+      "file_path": "specs/2026-10-26-nested-repository-boundaries.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "987e4a27f40029b76125e6645d0561703c079eba",
+      "content_sha256": "3a2bbbca829728f6bf4c742b3d7a94b2ecf613732c5b531a237330025b978783",
+      "entity_count": 1,
+      "file_path": "specs/2026-10-26-release-0.2.4.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "353e56e7cc2b17f59fef519190c5d87b5e3c985d",
+      "content_sha256": "8664d74c43a60f3a7355cc52af72e962fa7255439c5d139e7cae06846fb70df4",
+      "entity_count": 1,
+      "file_path": "specs/2026-10-26-release-0.2.5.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "27ec8d4cfa7477021b172bf4fce801b43f19bed2",
+      "content_sha256": "203ebc62adee07acc12107dc10ed53891fce93b62751911a5c9437fd436207f8",
+      "entity_count": 1,
+      "file_path": "specs/2026-10-28-code-review-evidence.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "395efb91e5ff3e4bd8c0098fbe86934e35c7680b",
+      "content_sha256": "67a319f2ece6efa9b497be286a2acd054bfe3106ef407390c36240e53fe79602",
+      "entity_count": 1,
+      "file_path": "specs/2026-10-28-external-decision-api.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "0af649196e5d1005d4655c5f3861ce62f5fed893",
+      "content_sha256": "c04ecce9831fb679ce377ab521571f29b9a0b527add924b6441a8decda044ff7",
+      "entity_count": 1,
+      "file_path": "specs/2026-10-28-release-0.3.0.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "eac104af6addf57a6277386fa3ea87db5e640788",
+      "content_sha256": "5a107f4ad2f5774b3ee668b5f1fa432208fa850911daaabf3563f34b2359636f",
+      "entity_count": 1,
+      "file_path": "specs/2026-10-28-release-0.4.0.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "a5b0081d5a960ef28dbe74d48096092d28c30964",
+      "content_sha256": "3830862fbe2964c5f7a94badf21683fc7ff9b2edefae1f21c4c1f100e1d7228f",
+      "entity_count": 1,
+      "file_path": "specs/2026-11-12-release-0.4.1.md",
+      "language": "text"
+    },
+    {
+      "blob_oid": "04e8e109db2927a01a1c0ccc22ac710823415b6e",
+      "content_sha256": "bcf8716ea67d7603b9c9dfa1c1d110a85ccfde181a997bed87229e104b921e05",
+      "entity_count": 5,
+      "file_path": "src/scs/__init__.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "c430947102410501390d1976a12a630d2b99567d",
+      "content_sha256": "716af7d4132c81a9952bb780c342a2ad5d17cabad9be15d668c94b83d973a59a",
+      "entity_count": 23,
+      "file_path": "src/scs/cli.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "89bafc542788fc41e2265e9eabd645272153403d",
+      "content_sha256": "1a3d35351c0d26fa0fd22a2acfed754b498ea689132a31e45d25de2ba20baa70",
+      "entity_count": 43,
+      "file_path": "src/scs/config.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "f9a1824a0eade37f1949f820981907541e36fe00",
+      "content_sha256": "a93cee3acf123eb213af95c74934a690c28d76b33e24f30e0544951dc3917b11",
+      "entity_count": 24,
+      "file_path": "src/scs/daemon.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "96865dd9df38b4a3f8d35fe9e037b1e17eef1c1b",
+      "content_sha256": "59990c637d2744afc535c6ef8e908507e1bde204d457224b3c515f9df36c04aa",
+      "entity_count": 2,
+      "file_path": "src/scs/errors.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "45162c30bb2bfa8c777937e4fbfe02f296c9128f",
+      "content_sha256": "dd28e9592f610c2ec8b426d408910e74b2b61be772458ef716ae2db9dbaa88c0",
+      "entity_count": 10,
+      "file_path": "src/scs/evaluation/__init__.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "43026eab02d4352975ca1a9afd9f9fc189059fcf",
+      "content_sha256": "6c3fee9df836731633c318c32599cd57f4664b2cf96ca85b1e256a3fefcd3ead",
+      "entity_count": 36,
+      "file_path": "src/scs/evaluation/query.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "f3e67d03a092b431f42f6973b5ec2355eb88b1f0",
+      "content_sha256": "1ff4bf9b941a90b537b8efb03b9b7cbc1a2d9ce262d64749d277fc818340fbb9",
+      "entity_count": 48,
+      "file_path": "src/scs/evaluation/search.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "8d096ea5b18155af7f0ebb398925c1ac38cea196",
+      "content_sha256": "ba5ae7e807ed23e10e011b3e65ff575cc16969eb49999805f621771f828c6686",
+      "entity_count": 9,
+      "file_path": "src/scs/graph/__init__.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "9c00b6e13ba69543e1a6495cf82bcb156cacadbb",
+      "content_sha256": "784e4e308967bcfaa8a7f621fa56001ceb1529fdf977f9dce090b0ecd752de9c",
+      "entity_count": 17,
+      "file_path": "src/scs/graph/gating.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "ee33af8869269b65808365363b2c8a2ffb220db0",
+      "content_sha256": "6c5cb4f6001cc893bd0d2069e680b4ff51e3f97572b4dda3893f318491dffdcb",
+      "entity_count": 11,
+      "file_path": "src/scs/graph/models.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "e226801554cccd0a518ce6f27b8e2584059382ea",
+      "content_sha256": "682e2f457f30986181338232abda2b644dff815ef6ad5d27686e9282aafbf2b4",
+      "entity_count": 116,
+      "file_path": "src/scs/graph/native.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "7877de07d521847fb80ab0e131f3506dd53d37e6",
+      "content_sha256": "05e30c47f190d8b6c92a84c25aefce8a79aa41ddba60540d02b1ebee03060e4d",
+      "entity_count": 18,
+      "file_path": "src/scs/identity.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "a9037ae3ca9eda2d6cc4c71598b35234c89dec01",
+      "content_sha256": "23ef0d81f5c7e766809ff89a64d4a8c624966cce44d70692bf4f98e6bfe93843",
+      "entity_count": 4,
+      "file_path": "src/scs/indexing/__init__.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "d35424833b0d99e206ba769f4084487766952c54",
+      "content_sha256": "b384beb926cff87b8cedd36af785ac68475a9f0e55d5eb5cba5f26a73373b6c3",
+      "entity_count": 43,
+      "file_path": "src/scs/indexing/discovery.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "7f9a68006f6fad1bac0dde69dffe152c6c160551",
+      "content_sha256": "6785a528eaa1fef9ab1b73c4e9f7cad7a7084f800077e5045e971789c07aadda",
+      "entity_count": 21,
+      "file_path": "src/scs/indexing/git_history.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "0f91c294c1d883e08dcb45ddd085ed1f2dca7287",
+      "content_sha256": "18401d66a337b9edf972865e5f41fe17a4ab7d70defa9a7735dd54f47807a36e",
+      "entity_count": 69,
+      "file_path": "src/scs/indexing/jobs.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "4d459302704cb1546709f48d2081ebd8115c6e43",
+      "content_sha256": "da29223f9cc253bd0082fa7ded0558f41093a2c38d82c22c0b32dda0b22fe664",
+      "entity_count": 6,
+      "file_path": "src/scs/indexing/parser/__init__.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "01651926a27bd0df24b9ae240865761b3ad628c6",
+      "content_sha256": "aead2159b12ed90d04d0f1059583a461e993826bc5dd9dc55088e4c5b4cc22be",
+      "entity_count": 16,
+      "file_path": "src/scs/indexing/parser/base.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "20add4234ec2eff284da235647858c6d74c5f344",
+      "content_sha256": "ed25f772a8728ab2bcfbc1a252acbd6baeaa1742d8b5a7dcf0c571321c93ced8",
+      "entity_count": 22,
+      "file_path": "src/scs/indexing/parser/native.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "8665b34293c7582debd58bfb933397e27c6e105e",
+      "content_sha256": "300bca77b8ed99409a4dd88712d8100914878f7e870c3e10bce356fff4d181d0",
+      "entity_count": 87,
+      "file_path": "src/scs/indexing/pipeline.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "ecd7c6cad40508bb79df6b0f3e9fddf7688d4042",
+      "content_sha256": "ce098018a62d06636a2786e69c5e06bef4cd1d8b14c6cccefdcee59b56cb6ace",
+      "entity_count": 20,
+      "file_path": "src/scs/indexing/repository_paths.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "32808269fa7ffd597a1d9ba0fd0242326ac07855",
+      "content_sha256": "cbf7fdfb106b7633cdee7899b1a24a81d82bf53cb11b48fb34c8f742153ed841",
+      "entity_count": 39,
+      "file_path": "src/scs/indexing/runner.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "53515ccf18384c235ee00308fe34260b4c895ad7",
+      "content_sha256": "28a9a949b511d0f28960974769a5461a3fe0667b9c7afca01aff25953041b1b5",
+      "entity_count": 46,
+      "file_path": "src/scs/indexing/search.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "cd80ac4509e5db42677065c10ef05c980462cc0c",
+      "content_sha256": "89dd2896ca5dc8f9c5a518ad4b344a21e88c48ff62b0c6615c810248a340cfd0",
+      "entity_count": 37,
+      "file_path": "src/scs/indexing/watcher.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "b8cb6f5c985a1c6409e262d27e74c37f119d4595",
+      "content_sha256": "d5f51b5b46515bb442cc7ab77f81d8f83118515ba739088160080ed47c70d8f9",
+      "entity_count": 71,
+      "file_path": "src/scs/main.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "4f13c0e8abd29a0ae67f9c0c6ece4d9ba7caff21",
+      "content_sha256": "b93dee9ee98e0f7ab17ba9eb95a2f8b96e2d37e6d696fcae450cda902ad3c7eb",
+      "entity_count": 8,
+      "file_path": "src/scs/mcp/__init__.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "e7f1d0db5e8b735bcd257247eda2a8d4419e107f",
+      "content_sha256": "cb3b3658ac6ac7852ff86a4ab0fee07af200b3fd4650c2fe550de805f37b5917",
+      "entity_count": 7,
+      "file_path": "src/scs/mcp/contracts.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "5641f7565506e7a2e8848ed4d3261340f3b2c75a",
+      "content_sha256": "b8e76c723ea48ded4a3551eb641c062d869c805d427428386ae64612a752190c",
+      "entity_count": 11,
+      "file_path": "src/scs/mcp/gateway.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "87dfc64556506666aa051a74b1f9c7ed1bd10634",
+      "content_sha256": "fc4709db0cc8ba4a6146c6bb8128280acdd6fe9b4a91933ac8e6c28343461c00",
+      "entity_count": 2,
+      "file_path": "src/scs/mcp/inventory.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "6eeb91109f9ee8f271b2a6fa9fe47bbf9dd8922d",
+      "content_sha256": "0073748db13f8bdf2c20229fbe6d02da880b2f57118a26f70354c84fa7ac014a",
+      "entity_count": 22,
+      "file_path": "src/scs/mcp/observability.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "1a072a07c06b2720257b1d2508b69e8cae40526d",
+      "content_sha256": "675a7d00ff32183503799b522d13fb2e691ae9deaf0c6296961e86f1914bc5ff",
+      "entity_count": 8,
+      "file_path": "src/scs/mcp/paths.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "936c1a180e7d25cd0ba6f0da8b3034f6ad316cc4",
+      "content_sha256": "c09c3b7a6700e01d514872ef3d51e838568f5b179a1d9c12309f8ab6b8111095",
+      "entity_count": 27,
+      "file_path": "src/scs/mcp/server.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "e19c590ba8d005e3c3356e734d46cc651649c387",
+      "content_sha256": "6a56451f35ac3ef6013e280c51c7e5659efcb1881de60fbcbf31876741039b78",
+      "entity_count": 8,
+      "file_path": "src/scs/mcp/stdio.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "3110acd11d89fb23f1bd7c39d96ba7ab4cd0ea24",
+      "content_sha256": "f40fd3df2377e11d03023f2d33d1e04a343375146b2010dd9d3da578d99953c0",
+      "entity_count": 29,
+      "file_path": "src/scs/metrics.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "87155323efacb0e3d77919bb2fcbf63190ed2e96",
+      "content_sha256": "d939151c04776777aed01ea578a0ebef60ed63f983086a0d5bcbf2266dce66b2",
+      "entity_count": 14,
+      "file_path": "src/scs/models.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "1e71cf9822e269385657fbbbb1fe539d3005bdbf",
+      "content_sha256": "0926b91e963ad0e2bf951aa29d813c7e8b53335735fc77e978110d24925f762f",
+      "entity_count": 1,
+      "file_path": "src/scs/orchestration/__init__.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "cec8dec8150a18614015f761c590d100811af919",
+      "content_sha256": "ce64b932955733c549a8a3fcc40c1469ab52633390dc1f86c86b81e999e1a086",
+      "entity_count": 9,
+      "file_path": "src/scs/orchestration/coverage.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "47d5fca2b8dbfe65642fbed663a40653b9daa388",
+      "content_sha256": "3e9ffb5dd2a2dede96ec90508c272da4f37c85e499036992a4c418956bb7a79e",
+      "entity_count": 22,
+      "file_path": "src/scs/orchestration/decision.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "6b388c24e08211378745f182ae810c7698c7a04f",
+      "content_sha256": "fa80af0532222cd63970b92c9ab5c6e5ece0d9c5ff1522612b02cb57e7a377db",
+      "entity_count": 34,
+      "file_path": "src/scs/orchestration/external_decision_provider.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "c67dff168945025f3fd565f0520ef910e215fa34",
+      "content_sha256": "142c441595938f3df672d3d937a02e7c1c2a5421b404b36de47115e5406ef0c5",
+      "entity_count": 53,
+      "file_path": "src/scs/orchestration/query.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "aa8c86bea509de2777f33e30ef56a76213c7d55c",
+      "content_sha256": "a0fef3c5bd7fed9bc829beff7b4907c905cf7964e37fe065f11598a0062532c1",
+      "entity_count": 12,
+      "file_path": "src/scs/paths.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "c614017d4a1ab13cb46030ff8b6fb1b782bec526",
+      "content_sha256": "f7f0b238b9ba96e2fed7f745e981e91e8abe7e35430702d40d38968986bfaaac",
+      "entity_count": 10,
+      "file_path": "src/scs/providers/__init__.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "9ba5df709ae1f264463b955345c705f7ad17279b",
+      "content_sha256": "afe12903e825c858e9c466c484a391af3e88cdb45cf9e4f963cc08f19bef4b3d",
+      "entity_count": 23,
+      "file_path": "src/scs/providers/base.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "136995c6c3b5d7b1e6bca5c0de04a85b65c10db0",
+      "content_sha256": "fa71c463c9b6ffe6eee3bc75b94a892ee5f3c37cd9fa9e68060ba7c84d208f7f",
+      "entity_count": 30,
+      "file_path": "src/scs/providers/mlx.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "b771401dc977df68d6783c5406ab5927606701bb",
+      "content_sha256": "2e530a6b828f96c09f04c43cf5b28acf6c8eb1368d6ea125c15b0cbb30348660",
+      "entity_count": 31,
+      "file_path": "src/scs/providers/openai_compatible.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "265e9f1f5acf755c75f5019b5f2cabe966430b14",
+      "content_sha256": "fc8146edd541e212abc66b6043eb7c808a3ac1f7c6a9b84aaca32ad7627b9534",
+      "entity_count": 25,
+      "file_path": "src/scs/providers/openai_compatible_reranking.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "7ef582c77c0281deeea42430995d7cbd79118ade",
+      "content_sha256": "c8be1fe75f96232cbc2605d523ac05adbdb977b9e4222cffef6cf84a47fa9404",
+      "entity_count": 11,
+      "file_path": "src/scs/service.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "397e78295560c76d796a953152895ccb2eda700a",
+      "content_sha256": "16c3ef62bb55e8d64f0ff29cec27a604ea93e8c5cda7f30c5935eb9fd418a46b",
+      "entity_count": 3,
+      "file_path": "src/scs/services/__init__.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "6ff082fa3c5a0033fe4345f5ff5867526608f740",
+      "content_sha256": "45221848d97cadc7f6a996dafbfcf7e5181b9b97bece5703b6e2b27afef68314",
+      "entity_count": 19,
+      "file_path": "src/scs/services/contracts.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "8c7705a7631e671160341038f65ad382cce6f60b",
+      "content_sha256": "4a1dd8a85d6b0b353166abf1183a72b1d486576d329f9d38f07d128cd60af3df",
+      "entity_count": 20,
+      "file_path": "src/scs/services/impact.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "d988039b7a038d349912ee76c641d6666bc43889",
+      "content_sha256": "968b1d14a58e158e9902a368f6fb31e522f253362e9aaebaa490eb2d75eccec6",
+      "entity_count": 86,
+      "file_path": "src/scs/services/routes.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "f48281b72f6e085e8101025c248a5a530e3029b4",
+      "content_sha256": "4f4cca7fcfb732a4dfeda44f4e92d554c96e232760936e80fe1582573620600a",
+      "entity_count": 8,
+      "file_path": "src/scs/source_paths.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "4f8651989eaa902153b21d12b5890aafd0919959",
+      "content_sha256": "7546bc9e77105738833cd59a7be456cf385408c904f0a7248c2c3a93d67e9dd5",
+      "entity_count": 15,
+      "file_path": "src/scs/storage/__init__.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "644e41e73f929cb586beaa28ef910dbe975e359b",
+      "content_sha256": "11ef3736c8dad11d1dfb93500d10c2a2e15cb5d1c5020717f42e4ffa2b2fa67c",
+      "entity_count": 29,
+      "file_path": "src/scs/storage/catalog.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "8385c22565c07dcbd9d4ea0aceadfa935a0fec93",
+      "content_sha256": "dabb1794f65c4eefdfb94556e4b539b0bfc09f7a924abbc34afda8621875f15b",
+      "entity_count": 16,
+      "file_path": "src/scs/storage/models.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "4a2f8d8216774d24547afe65957976d25e545661",
+      "content_sha256": "c835aa3d646de703e3c5fb102f7383f6db58f0ec8ed1b7c9e7d11ede7a971fae",
+      "entity_count": 19,
+      "file_path": "src/scs/storage/paths.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "4ccf29cc14979a793e385ac8e1280a502a1e9bf9",
+      "content_sha256": "541cca4d41f3273fcc68bd18de4c1090d96731cb7a6cd5274a657d40cd46f32a",
+      "entity_count": 34,
+      "file_path": "src/scs/storage/registry.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "17436f7f9414d6514ebce6d0e0f1be4239618ba5",
+      "content_sha256": "b033407e7aa557f0176d9dea1ad2fb0e4ba8e6dfedbcced94c98dbedee9f3267",
+      "entity_count": 10,
+      "file_path": "src/scs/storage/snapshot.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "af5d083f261c22664df4478413a8571d80d59170",
+      "content_sha256": "a416564cf15e567d3e38ecc0cf3951f09bdf2f722522bd2f9c137ceafb705b33",
+      "entity_count": 28,
+      "file_path": "src/scs/uninstall.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "13d18422442319bff11ff1b1da93511aa3e92b45",
+      "content_sha256": "b8fb234fb0fccda22c23d1d9bc0509e65df163d7074f67c40f9f7a524f3a9d2d",
+      "entity_count": 4,
+      "file_path": "src/scs/wire/__init__.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "adf7a7096779d5594032adc47f56ca735d893deb",
+      "content_sha256": "30d36771542fe809a3986279fcec9819a787755c8059708de150916cf366cc62",
+      "entity_count": 27,
+      "file_path": "src/scs/wire/client.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "7a30fd26f0f06bd04888fbdc4cad374c3b924d16",
+      "content_sha256": "34e271cec599c97fea39c08c8da388490a4b9938a8fa79b7f16c9d0d39509be6",
+      "entity_count": 16,
+      "file_path": "src/scs/wire/events.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "cdf1b1cc5ec63380f5a05fd14331734730fd8cf4",
+      "content_sha256": "7dea94b1855f1c06cd194ceaa69b8533c05e0808565e1d8e373301c8e5c71e5a",
+      "entity_count": 15,
+      "file_path": "src/scs/wire/framing.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "5ee0050bb4c4fc18ba18861bfef5ff3ec80ed3b5",
+      "content_sha256": "7f0e676fd2624e678250e1ff116db6cff84d2bcf64bafe78a503f6f72c0ca327",
+      "entity_count": 14,
+      "file_path": "src/scs/wire/models.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "8a6797218676e1f7c4a34b12fea5f895aad268a3",
+      "content_sha256": "edd2c8e02731e3424dbc22c2ad83f6a2579b06af4b49dbec8d12d52458eb7be4",
+      "entity_count": 20,
+      "file_path": "src/scs/wire/router.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "b1e6b150daa839bde24e58cd11ae337552f5f618",
+      "content_sha256": "0234e0d6602fe18660320e538d166fb5d660a54d577bb1485cf0297d54dfa6c7",
+      "entity_count": 36,
+      "file_path": "src/scs/wire/server.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "89db170f01cc59659e41b6d8ff1b936ba4160ea9",
+      "content_sha256": "7947c1e871f61b1f0a03a4456e755095848bab4b99b59a8bfeff2ed798716fd3",
+      "entity_count": 28,
+      "file_path": "tests/contract/test_cli_contract.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "ee93da7a90f0a85f24ca39830f148bf9045608dd",
+      "content_sha256": "30428a069a74dcb4149a3499fa65e3b151a8920afa476b1522b11f24686cbe68",
+      "entity_count": 9,
+      "file_path": "tests/contract/test_mcp_inventory.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "cabee5f4c0340f2a039d5db6e4d14fac3850eb2f",
+      "content_sha256": "ad8ea6f6953cf26e1c98330c60704e6961a6fe6d6602aad0d1fe7be6bceaac52",
+      "entity_count": 11,
+      "file_path": "tests/contract/test_model_contract.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "6bfbd567d7c029887c20a0895c81ea79e3222dde",
+      "content_sha256": "f808d04fa6c402d2a452e9f9e294a076dcc7a9bc80ce09e535b0a9d203695454",
+      "entity_count": 17,
+      "file_path": "tests/contract/test_native_contract.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "9811d8c57e97c4a2fca2ac1036647dd5595b4bb6",
+      "content_sha256": "8177a46c49a994cf3ab1f7bbbd099aa3d7772ff1a61d3f7385e529a73fb42985",
+      "entity_count": 25,
+      "file_path": "tests/contract/test_wire_contract.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "940a4e7e3abfc25c801fbcd847b7cdc74b9d29f5",
+      "content_sha256": "1660bccb251b69fc7e7df540c605cf978008908db6b2d07ad5e09e976dd74c4a",
+      "entity_count": 7,
+      "file_path": "tests/contract/test_wire_stream_contract.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "fa473cf04a780cde998415ea4bfc60a505191e7f",
+      "content_sha256": "9e9de556223fde8925666689629e65c520c78beff62ca302f82751f6befa22a6",
+      "entity_count": 43,
+      "file_path": "tests/integration/indexing/conftest.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "f4368e70484f76d0bf54cf06fa8ef1de530d722a",
+      "content_sha256": "877f8e65f088c9d01c6d558a03936fce80f88a86a19a5aef3b08295bd093b337",
+      "entity_count": 7,
+      "file_path": "tests/integration/indexing/occurrence_fixtures.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "403e5c672f3732b228aae5919e5d87355f5f2845",
+      "content_sha256": "ba9ebf777e1d7e914a26b205406ca9db9722c350d517323af05119b1f14e4b00",
+      "entity_count": 27,
+      "file_path": "tests/integration/indexing/test_entity_occurrences.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "78c9b086c52207931cb2053c0ad8793511eeb468",
+      "content_sha256": "8ea3a215bb56038d5580064673feeae0e36714740957946c845cee8dc4ec940e",
+      "entity_count": 18,
+      "file_path": "tests/integration/indexing/test_force_recovery.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "03da17da286e224fc5297470d5a4657c4d2b9ee4",
+      "content_sha256": "98adc793e3edbff06e95b49e66d3a7ae3344b73ca372b12979099bae21cf9e1f",
+      "entity_count": 8,
+      "file_path": "tests/integration/indexing/test_go_ingestion.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "e7f8e81cdaa465a77be2a2218e40cb45293b75da",
+      "content_sha256": "87364c87ae8bc898e20376c59b09185dca73a85ef8fe1fc3444d63256c6e667a",
+      "entity_count": 61,
+      "file_path": "tests/integration/indexing/test_pipeline.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "847de42987530c3fdb9e315f3ae4fc89de37747c",
+      "content_sha256": "3cf3663d348196a6d51cd960feecee57d805eaaf4bc19b57b032faa4d2f8127f",
+      "entity_count": 15,
+      "file_path": "tests/integration/test_classifier_daemon_readiness.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "60b0248639b95b92559bb54851cce6c5980ad5e2",
+      "content_sha256": "cd9fceef77e4491611464f26160d2053e7492bff2e866aeb2d8d0ae558d6dc42",
+      "entity_count": 31,
+      "file_path": "tests/integration/test_daemon.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "6bda96e0e2f382e3132302bd518b010dab67441b",
+      "content_sha256": "c8a66b6ae1cacd9133c1684ee887b2a882b0335bf7965565187a3b93947df1a6",
+      "entity_count": 14,
+      "file_path": "tests/integration/test_daemon_mcp_end_to_end.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "69279e22cac925556e0c85cc1867cbaccd91931e",
+      "content_sha256": "177809042e4ecc3e632171a4e6aa90508a3441da0f1a467d2275be0c6feca00f",
+      "entity_count": 10,
+      "file_path": "tests/integration/test_inspection_ranking.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "8ce7c90c72ec8262fa04c83194df3525fafcf865",
+      "content_sha256": "8c7b37177ad837453dd55c1c5c6c5b2bdd065d5d6c03cd9a36d67cf88109ea65",
+      "entity_count": 16,
+      "file_path": "tests/integration/test_mcp_security.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "f0fd6bec20ba048483fa00511c272bf6bd7e82fc",
+      "content_sha256": "30930736484ed0ded9facb64fb9d3b40210e6467601ceed96a64314de9e072c1",
+      "entity_count": 24,
+      "file_path": "tests/integration/test_mcp_server.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "5c759225bcdb6023ece9da8a9e6d6d1ae6d55241",
+      "content_sha256": "813907eac20f0f5b28b9beb4d66f8d0f65306e829f902edd910a35e376dc4d96",
+      "entity_count": 9,
+      "file_path": "tests/integration/test_persistence_faults.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "2fd8320d2ecb835aebe5602c6b90e991106667b0",
+      "content_sha256": "944970ec8f3759dfd32096ec889d5b44753c4431954035172ab0e14c867d2ce2",
+      "entity_count": 12,
+      "file_path": "tests/integration/test_review_query.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "f75b36ab6190b735a54015fdfdefe1c100869f48",
+      "content_sha256": "6236a24b0d241500223b7d20af806539051c383e3a1ef3e897ea0fb52df66f0b",
+      "entity_count": 16,
+      "file_path": "tests/integration/test_runtime_identity.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "90a52415ded0c7b79ae07fed6efe5bcba24fe6dd",
+      "content_sha256": "1a0f270c7ce90cad2701fd21340aa98caed60efcb1b1bf0a445e527c2db77b0f",
+      "entity_count": 33,
+      "file_path": "tests/integration/test_service_route_security.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "6b8ef47c9b9ff1ca2f5c57b5e0ac2c28004de065",
+      "content_sha256": "42cd6d61ba65c7bc782f0e52125507fe6f772b8558ea671f5ae747b076048a27",
+      "entity_count": 44,
+      "file_path": "tests/integration/test_service_routes.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "e21e9b42ed821cffa120fe031f4f19c472c3bc70",
+      "content_sha256": "138c513d4fee74131345e1ed2a54c59eb65a7e90ad33588c860d6b43779e32fb",
+      "entity_count": 13,
+      "file_path": "tests/integration/test_source_alias_routes.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "0abff918f2ebc36fbb850829e881c0e72a1358fb",
+      "content_sha256": "559598d5efea9bdeb7fe70c5ab8db503eff899c33cb932ce27ccd2b4aa56f109",
+      "entity_count": 18,
+      "file_path": "tests/isolation/test_fresh_index_boundary.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "28f4764a3a07616ced57d4ae3e0042b107aa0522",
+      "content_sha256": "2c9be36131892ed06e2d14964c0806225adb400af1e1c0841f252774e0cebe5b",
+      "entity_count": 4,
+      "file_path": "tests/isolation/test_headless_product.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "66628bd512d1444871830366db9294ee9d0be877",
+      "content_sha256": "24d6296879600de53fd4cb3709ff4f1c39f05f9887f1dd8aa3239d7d2dabdcfd",
+      "entity_count": 17,
+      "file_path": "tests/isolation/test_repository_read_only.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "fd90c02bdb72fc3e7b5bdcee6317938eaf398c2a",
+      "content_sha256": "46225d2eafa31b194cd34f6c0de0396d8a42664426cda106ef132e76f610ae78",
+      "entity_count": 6,
+      "file_path": "tests/isolation/test_runtime_isolation.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "3b77b0c6364047d6325ccbb301350e6a33b69635",
+      "content_sha256": "4feee665974fc9196baeee51d10c05ad12af98215967f4c94d8e7db7fecff94e",
+      "entity_count": 22,
+      "file_path": "tests/performance/test_budgets.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "3df4f38c867e8683fccdf8c39121b0a022d29ce5",
+      "content_sha256": "17674a5a3428b2bb2798b9ea4b541cd049974e4bc95732248b7523f8ecc580e9",
+      "entity_count": 41,
+      "file_path": "tests/property/test_incremental_equivalence.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "498148c8bd00c34d4bfd80668d66d62a0ae68762",
+      "content_sha256": "d94c0c10a0db1ded69e07dc049d2fd8d1653b8a44872182963800b2e0059bd12",
+      "entity_count": 34,
+      "file_path": "tests/unit/test_config.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "052201a07e5b2120f3294aad8ceb656308d43cb0",
+      "content_sha256": "89f2fa2ba94f5535f49b7ae52dd432817afdd82a10213d1c1f9b47c8f2ff6cb2",
+      "entity_count": 15,
+      "file_path": "tests/unit/test_daemon_controller.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "3e9d87f4b7314cfa506a6d1199022c29b0da7b5b",
+      "content_sha256": "4b7179a7f3ec9ad13095087e2219af464c4da770075dfa3accab35c05f0bdf54",
+      "entity_count": 25,
+      "file_path": "tests/unit/test_external_decision_provider.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "b1dcb67e643927fc963863c2ccf4e0f496b535f5",
+      "content_sha256": "50c163c78934f45ac80e01a6de19ebfada51d96fceb6509b0792a32e21994c45",
+      "entity_count": 7,
+      "file_path": "tests/unit/test_graph_gate.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "58e86312824ac457331eee10fbcf1d1df2491245",
+      "content_sha256": "0b980a79367759fffc8c471ddca307150eb1da6d39afa92e6d55d28f2eb0e811",
+      "entity_count": 24,
+      "file_path": "tests/unit/test_indexing_discovery.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "49c9cac0cec267fef0f5e6685e1f0937cda286d5",
+      "content_sha256": "ba1db524d3a2818f185cd0603fd06d93f9686073f28abdf7ddf5a27cc8a85af1",
+      "entity_count": 12,
+      "file_path": "tests/unit/test_indexing_git_history.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "5555329b8cfa10ae690fda886f5ac683bf8fca29",
+      "content_sha256": "9044fba5c83f83df07b52872fb8f093f7e7102d945a31e64702f0d720938f12e",
+      "entity_count": 26,
+      "file_path": "tests/unit/test_indexing_jobs.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "bca0cf0ee5e71258d75bf7e359be2eba59d5c938",
+      "content_sha256": "c9a52c40fe878e2f58c40ecc0df42b1976f8d57be1d3087f40f5c6727a4dc840",
+      "entity_count": 14,
+      "file_path": "tests/unit/test_indexing_native.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "e31ed0ee2f27baabd53b3bbb7cc9ed09abbaba23",
+      "content_sha256": "4d47207fcb186a04933ea88bdafb4906f6e7ee8368ef8ebde3e40a42ef5b01a7",
+      "entity_count": 41,
+      "file_path": "tests/unit/test_indexing_runner.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "3ffd7b3eefd95d5ddfd913eff3cba56bcf9b539a",
+      "content_sha256": "6c8ebb641bbf430505ad13b47b78c0a9515a2baae638c7c5c1996d902e00e93c",
+      "entity_count": 38,
+      "file_path": "tests/unit/test_indexing_search.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "f6dd288e422404f2ff030b374f8b13a99f740784",
+      "content_sha256": "3d65fb8a13aba742454ddca4d69873fbb5e7d3c9568ed200e53ed486d5d5d23c",
+      "entity_count": 28,
+      "file_path": "tests/unit/test_indexing_watcher.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "8f2a0c4b752ed9a83b7e14a02f78a0a3d5260df5",
+      "content_sha256": "519ea46560ce6ee4b58c13803d5e2916d00d825474b4f2e6044c2f476431a431",
+      "entity_count": 9,
+      "file_path": "tests/unit/test_installer.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "648d148eb64dbdb757f820999495f8a9774fb780",
+      "content_sha256": "dab66b034f96b4f12b887e0b60349da90df67a9febbcd9f6ac4b54fcf52775e6",
+      "entity_count": 8,
+      "file_path": "tests/unit/test_main.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "1d4d0e34791ec94045912643dcf61eac73e51c89",
+      "content_sha256": "87914a86d73794a43abbaed8f93eb060672c91f2e6e52c45bc92fdfac90e6bd0",
+      "entity_count": 8,
+      "file_path": "tests/unit/test_metrics.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "7d1ce69c81f377afcf570f630beec79b6ce5eea3",
+      "content_sha256": "aa2e48e3d5c06602a7334cc79beedb439e55313b40cbcbf586a6258f63afb6ed",
+      "entity_count": 6,
+      "file_path": "tests/unit/test_parser_base.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "daba7cabf243971cea7b625f1f6ab08a649bc4b1",
+      "content_sha256": "3bd0827aa4017cbef5823f290031ae7b88a4b5c18c77653c9f5506a82b4180a8",
+      "entity_count": 27,
+      "file_path": "tests/unit/test_project_store.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "0d2f4cbb56069db9c3e104e710908134dc714b5e",
+      "content_sha256": "a45b1ceef76993076d8e84a0f097fa42983919d7452de2fd7f95841e62bae420",
+      "entity_count": 36,
+      "file_path": "tests/unit/test_providers.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "3bc1524fadf9d941fb704bae95d5f427e2daac7f",
+      "content_sha256": "a3d728090c066d18d7840c8b9b9e0310116646fa65d112c18e0d341f296971d6",
+      "entity_count": 13,
+      "file_path": "tests/unit/test_query_decision.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "e08093f6ee3ec9af24fe334036642d8c9c293c4f",
+      "content_sha256": "1d65d17fe8ae2084ee51754ff67dfaf4291cf5fb84c44084ea3e6900e95f76ea",
+      "entity_count": 16,
+      "file_path": "tests/unit/test_query_evaluation.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "e72804ab04806c215442a2e762ece072c07f43a1",
+      "content_sha256": "60f46c8c9edfd3d63b1c7de33e72896befc910ea11ba73861c17836902bead12",
+      "entity_count": 36,
+      "file_path": "tests/unit/test_query_orchestration.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "b908b27eac334e8ecae78630438eff58a2d465fe",
+      "content_sha256": "0e9b83625386d35787fa962a703ec9ea590856cb9c8280aba192a846d4fe050c",
+      "entity_count": 9,
+      "file_path": "tests/unit/test_release_version.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "2e45464f80cfaba7832725c1ce9c98e1f10fec20",
+      "content_sha256": "2a4a898a78814f37faff1d1a10a44a8feba5c1a8bdf4d32f451ed0163ff9c815",
+      "entity_count": 14,
+      "file_path": "tests/unit/test_repository_paths.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "f72e21512ed7725b9cd02ad78283fad49b08aebc",
+      "content_sha256": "9e6bda4ede076f6a0e78140bd8fd5a850ba7873744ca60c631b33a044bafc496",
+      "entity_count": 10,
+      "file_path": "tests/unit/test_review_contracts.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "a98566c4fee4f92ca44c35521cf8979ca2aa50d3",
+      "content_sha256": "68a808913ef5516c9e470ea554d7472f18fb9041b93a1efe9a02efade664fbae",
+      "entity_count": 7,
+      "file_path": "tests/unit/test_review_coverage.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "216cbe0f4993cd9e6d33b9199bd4abcac4df40fc",
+      "content_sha256": "14c414257abfdcc80e89a51136ec44a0b09996393803358d8797414fff414aa9",
+      "entity_count": 12,
+      "file_path": "tests/unit/test_review_impact.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "9693ea1827ee2ed82c4959cdc937c28041a28c47",
+      "content_sha256": "68111dcad58f4e4b6998ee3d604047bb932f39bb0a6a171a0aa449983b860f19",
+      "entity_count": 6,
+      "file_path": "tests/unit/test_review_smoke_script.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "c8a73c45d345f37c5b166259bbe25a7a615b09c9",
+      "content_sha256": "01051e08bae1750a497985d60cfc6eddbe73b5868e90ecd424ddcdcf648f9eb8",
+      "entity_count": 22,
+      "file_path": "tests/unit/test_search_evaluation.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "e95c040fa9d753075d7033d8ab1893ecd988f1af",
+      "content_sha256": "22e23901283fe69184d66052fdd7f02ab4332d3723148dd8ef5740fc94dc57fd",
+      "entity_count": 5,
+      "file_path": "tests/unit/test_source_paths.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "f531f0c6197dfef123fc31c6862df12d2a8c38a2",
+      "content_sha256": "81e372e7c3144b6a6de7f20617344caa9bbd859a7499866cd9dc1281d334baf1",
+      "entity_count": 23,
+      "file_path": "tests/unit/test_uninstall.py",
+      "language": "python"
+    },
+    {
+      "blob_oid": "75e0ca2dd6a990716145badecf10082987d418b2",
+      "content_sha256": "5fea3297b58a690c6340fa950f83c8d6d5f4816a944083a123c342c5d59d367e",
+      "entity_count": 1,
+      "file_path": "typings/laya_mlx/__init__.pyi",
+      "language": "text"
+    },
+    {
+      "blob_oid": "943f91277c858171eebc96a859bdfa39ec3d4bf5",
+      "content_sha256": "67d1e0121bbf76b7f7b1268b14fb08787125d87f0b2a9a1ec40fd648c8809b00",
+      "entity_count": 1,
+      "file_path": "uv.lock",
+      "language": "text"
+    }
+  ],
+  "git_revision": "ec223664e309a14c979d8d27879fd27d7879dab4",
+  "schema_version": 1,
+  "scs_version": "0.4.1",
+  "skipped_entries": {
+    "other": 0,
+    "submodule": 0,
+    "symlink": 0
+  },
+  "source_sha256": "db017955de6ec568c5206c0c862e052fb6f7b476b27d557807ca350625bb784a"
+}

@@ -1,6 +1,8 @@
 set shell := ["sh", "-cu"]
 
 repository := "leonardoventurini/scs"
+local_eval_scripts := "scripts/export-model-corpus.py scripts/evaluate-local-embeddings.py scripts/evaluate-local-reranking.py scripts/evaluate-local-routing.py"
+local_eval_tests := "tests/unit/test_model_corpus_export.py tests/unit/test_local_embedding_evaluation.py tests/unit/test_local_reranking_evaluation.py tests/unit/test_local_routing_evaluation.py"
 
 setup:
     uv sync --all-groups
@@ -32,6 +34,12 @@ eval-search suite="evals/scs-search-v1.json" repo="." k="10" repeats="1":
 
 eval-query suite="evals/scs-query-v4.json" repo="." mode="balanced" k="10" repeats="1":
     uv run python scripts/evaluate-query.py --suite "{{suite}}" --repo "{{repo}}" --mode "{{mode}}" --k "{{k}}" --repeats "{{repeats}}"
+
+# Check research tools without installing inference runtimes or loading models.
+eval-local-check:
+    uv run --frozen --all-groups basedpyright {{local_eval_scripts}} {{local_eval_tests}}
+    uv run --frozen --all-groups ruff check {{local_eval_scripts}} {{local_eval_tests}}
+    uv run --frozen --all-groups pytest -q {{local_eval_tests}}
 
 verify: typecheck lint coverage native-test
 
