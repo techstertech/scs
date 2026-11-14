@@ -1,0 +1,8 @@
+{
+  "ready": true,
+  "job_status": "running",
+  "phase": "models",
+  "current": 2404927377,
+  "total": 3261138146,
+  "observed_via": "system.health and jobs.recent during first-use MCP indexing"
+}

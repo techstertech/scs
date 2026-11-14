@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded
 project: scs
 project-root: /Users/leonardo/Repositories/scs
 created: 2026-09-25
@@ -7,7 +7,7 @@ updated: 2026-10-28
 supersedes:
   - decisions/2026-09-23-use-native-mlx-for-query-routing.md (runtime ownership only)
   - decisions/2026-09-23-gate-daemon-readiness-on-classifier.md (worker supervision only)
-superseded-by:
+superseded-by: decisions/2026-11-14-bundle-local-default-models.md
 related-specs:
   - specs/2026-09-25-consume-external-laya-inference.md
   - specs/2026-10-28-external-decision-api.md
@@ -17,6 +17,10 @@ implementation:
 ---
 
 # Use External Laya Inference
+
+The [bundled-profile decision](2026-11-14-bundle-local-default-models.md) permits
+SCS-owned local inference. Existing external API and service ownership contracts
+remain available for configured custom services.
 
 External runtime ownership remains authoritative. The
 [configured external decision API](../specs/2026-10-28-external-decision-api.md)

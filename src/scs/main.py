@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import signal
 import uuid
 from collections.abc import Mapping
@@ -21,11 +22,15 @@ from scs.indexing.runner import IngestionJobRunner
 from scs.indexing.watcher import RepositoryWatcher
 from scs.identity import IdentityPublisher
 from scs.metrics import AggregateMetrics
+from scs.local_models.artifacts import ModelRole
+from scs.local_models.runtime import LocalModelRuntime
 from scs.orchestration.decision import DecisionProvider, DeterministicDecisionProvider
 from scs.orchestration.external_decision_provider import ExternalDecisionProvider
+from scs.orchestration.local_decision_provider import LocalDecisionProvider
 from scs.orchestration.query import QueryOrchestrator
 from scs.providers.base import EmbeddingProvider, RerankingProvider
 from scs.providers.mlx import MLXEmbeddingProvider
+from scs.providers.local import LocalEmbeddingProvider, LocalRerankingProvider
 from scs.providers.openai_compatible_reranking import (
     OpenAICompatibleRerankingProvider,
 )
@@ -39,6 +44,7 @@ from scs.wire.server import WireServer
 
 CLIENT_HANDOFF_SECONDS = 0.5
 UNATTACHED_STARTUP_GRACE_SECONDS = 10.0
+logger = logging.getLogger(__name__)
 
 
 def _metadata_integer(values: Mapping[str, object], key: str) -> int:
@@ -50,12 +56,20 @@ def _metadata_integer(values: Mapping[str, object], key: str) -> int:
     return int(value)
 
 
-def build_reranker(settings: SCSSettings) -> RerankingProvider | None:
+def build_reranker(
+    settings: SCSSettings,
+    *,
+    local_runtime: LocalModelRuntime | None = None,
+) -> RerankingProvider | None:
     """Compose reranking only when an operator configures a model."""
 
     model_name = settings.reranking_model
-    if model_name is None:
+    if model_name is None or settings.reranking_provider == "disabled":
         return None
+    if settings.reranking_provider == "local":
+        if local_runtime is None:
+            raise RuntimeError("local reranking requires the shared model runtime")
+        return LocalRerankingProvider(local_runtime)
 
     return OpenAICompatibleRerankingProvider(
         base_url=settings.openai_compatible_base_url,
@@ -100,6 +114,28 @@ class SCSDaemon:
         self._shutdown_requested: asyncio.Event = asyncio.Event()
         self._shutdown_task: asyncio.Task[None] | None = None
         self._ever_attached: bool = False
+        local_roles = tuple(
+            role
+            for role, selected in (
+                (ModelRole.EMBEDDING, self.settings.embedding_provider == "local"),
+                (
+                    ModelRole.RERANKING,
+                    self.settings.reranking_provider == "local"
+                    and self.settings.reranking_model is not None,
+                ),
+                (
+                    ModelRole.DECISION,
+                    self.settings.decision_provider == "local"
+                    and self.settings.decision_model is not None,
+                ),
+            )
+            if selected
+        )
+        self._local_runtime: LocalModelRuntime | None = (
+            LocalModelRuntime(self.settings.paths.model_cache, roles=local_roles)
+            if local_roles
+            else None
+        )
         self._services: SCSServiceRoutes = SCSServiceRoutes(
             graph=self._require_graph,
             jobs=self._require_jobs,
@@ -108,16 +144,22 @@ class SCSDaemon:
             binding_for_repository=self._binding_for_repository,
             reranker=lambda: self._reranker,
         )
-        self._decision_provider: DecisionProvider = (
-            ExternalDecisionProvider(
+        self._decision_provider: DecisionProvider
+        if (
+            self.settings.decision_model is None
+            or self.settings.decision_provider == "disabled"
+        ):
+            self._decision_provider = DeterministicDecisionProvider()
+        elif self.settings.decision_provider == "local":
+            assert self._local_runtime is not None
+            self._decision_provider = LocalDecisionProvider(self._local_runtime)
+        else:
+            self._decision_provider = ExternalDecisionProvider(
                 self.settings.decision_base_url,
                 model=self.settings.decision_model,
                 max_concurrency=self.settings.decision_max_concurrency,
                 on_unavailable=self.request_shutdown,
             )
-            if self.settings.decision_model is not None
-            else DeterministicDecisionProvider()
-        )
         self._query: QueryOrchestrator = QueryOrchestrator(
             provider=self._decision_provider,
             call=self._query_service_call,
@@ -149,7 +191,10 @@ class SCSDaemon:
                 paths.metrics_key,
             )
             embeddings: EmbeddingProvider
-            if self.settings.embedding_provider in {
+            if self.settings.embedding_provider == "local":
+                assert self._local_runtime is not None
+                embeddings = LocalEmbeddingProvider(self._local_runtime)
+            elif self.settings.embedding_provider in {
                 "openai",
                 "openai_compatible",
             }:
@@ -172,10 +217,13 @@ class SCSDaemon:
                     dimension=self.settings.embedding_dimension,
                     batch_size=self.settings.embedding_batch_size,
                 )
-            reranker = build_reranker(self.settings)
+            reranker = build_reranker(self.settings, local_runtime=self._local_runtime)
             stores = ProjectStoreRegistry(home=paths.home, provider=embeddings.metadata)
-            if self.settings.decision_model is not None:
-                assert isinstance(self._decision_provider, ExternalDecisionProvider)
+            if self._local_runtime is not None:
+                # Storage compatibility depends on model identity. Capture it
+                # before transient load failures affect live provider readiness.
+                await self._local_runtime.warm_cached()
+            if isinstance(self._decision_provider, ExternalDecisionProvider):
                 await self._decision_provider.start()
             jobs = await asyncio.to_thread(IngestionJobStore, paths.jobs_database)
             parser = NativeParser()
@@ -210,10 +258,28 @@ class SCSDaemon:
                         self._events.publish("indexing_progress", payload),
                     )
 
+                job_embeddings = embeddings
+                if isinstance(embeddings, LocalEmbeddingProvider):
+                    assert self._local_runtime is not None
+
+                    def model_progress(model: str, completed: int, total: int) -> None:
+                        report(
+                            IngestionProgress(
+                                phase="models",
+                                current=completed,
+                                total=total,
+                                message=f"Preparing local model {model}",
+                            )
+                        )
+
+                    job_embeddings = LocalEmbeddingProvider(
+                        self._local_runtime,
+                        progress=model_progress,
+                    )
                 return IngestionPipeline(
                     graph=graph_for_job(job),
                     parser=parser,
-                    embeddings=embeddings,
+                    embeddings=job_embeddings,
                     progress=report,
                     policy=IngestionPolicy(
                         text_fallback=self.settings.index_text_fallback,
@@ -316,6 +382,8 @@ class SCSDaemon:
             )
             identity.publish()
         except BaseException:
+            if self._local_runtime is not None:
+                self._local_runtime.request_stop()
             if identity is not None:
                 identity.remove_owned()
             if server is not None:
@@ -327,6 +395,7 @@ class SCSDaemon:
                 await runner.stop()
             if isinstance(self._decision_provider, ExternalDecisionProvider):
                 await self._decision_provider.close()
+            await self._close_local_runtime()
             process_lock.release()
             self._server = None
             self._graph = None
@@ -348,6 +417,8 @@ class SCSDaemon:
             shutdown_task.cancel()
         server = self._server
         self._server = None
+        if self._local_runtime is not None:
+            self._local_runtime.request_stop()
         if server is not None:
             await server.stop()
         identity = self._identity
@@ -361,6 +432,7 @@ class SCSDaemon:
             await runner.stop()
         if isinstance(self._decision_provider, ExternalDecisionProvider):
             await self._decision_provider.close()
+        await self._close_local_runtime()
         graph = self._graph
         self._graph = None
         if graph is not None:
@@ -379,6 +451,15 @@ class SCSDaemon:
         self._embeddings = None
         self._reranker = None
         self._started = False
+
+    async def _close_local_runtime(self) -> None:
+        """Preserve daemon ownership cleanup even if optional GPU cleanup fails."""
+
+        if self._local_runtime is not None:
+            try:
+                await self._local_runtime.close()
+            except Exception:
+                logger.exception("Local model cleanup failed")
 
     async def wait_for_shutdown_request(self) -> None:
         """Wait until signals or the final attached client request shutdown."""

@@ -1,0 +1,17 @@
+{
+  "wheel": "scs-0.4.1-cp314-cp314-macosx_11_0_arm64.whl",
+  "sha256": "c8bbe94438a7d93aaa86f5dbc2a6d16f85a138b793832f34ebac419d3b6d1320",
+  "bytes": 4149461,
+  "manifest_sha256": "aaa97e7c23ac3f0107fcda36c157280eb08c6c3478508c4e8eb4c4c81bf11fbe",
+  "dependency_markers": {
+    "macos14_arm64": [
+      "laya-mlx",
+      "sentence-transformers",
+      "torch"
+    ],
+    "macos13_arm64": [],
+    "linux_x86_64": []
+  },
+  "native_extension": true,
+  "source_files_equal": 74
+}

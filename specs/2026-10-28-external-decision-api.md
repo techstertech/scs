@@ -15,6 +15,10 @@ implementation:
 
 # Configured external decision API
 
+The [bundled local profile](2026-11-14-bundled-local-models.md) adds SCS-owned
+inference for fresh supported Macs. Its scoped successor changes external-only
+runtime ownership; the external transport and compatibility contracts below remain.
+
 ## Outcome
 
 SCS selects query playbooks through a model-neutral external decision API.

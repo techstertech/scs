@@ -1,0 +1,298 @@
+{
+  "cache": {
+    "complete": true,
+    "expected_bytes": 3261138146,
+    "observed_bytes": 3261138146,
+    "roles": {
+      "decision": {
+        "complete_files": 6,
+        "expected_files": 6,
+        "model": "aac6fef/laya-mlx@20aed815fc6acde75733882e7ec0e3f28aeb9717",
+        "observed_bytes": 846195880
+      },
+      "embedding": {
+        "complete_files": 10,
+        "expected_files": 10,
+        "model": "Qwen/Qwen3-Embedding-0.6B@97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+        "observed_bytes": 1207470234
+      },
+      "reranking": {
+        "complete_files": 12,
+        "expected_files": 12,
+        "model": "Qwen/Qwen3-Reranker-0.6B@e61197ed45024b0ed8a2d74b80b4d909f1255473",
+        "observed_bytes": 1207472032
+      }
+    }
+  },
+  "command": "/Users/leonardo/Repositories/scs/.venv/bin/scs",
+  "daemon_identity": {
+    "artifact_sha256": "efd89c6768a3353a0adb4269581dfd2469acc6f9e37c322db439bb508d328ef6",
+    "generation": "00705ff84b46428f9bea686079b93a2d",
+    "pid": 42203,
+    "protocol_max": 1,
+    "protocol_min": 1,
+    "service": "scs-daemon",
+    "start_time": "2026-11-14T23:15:39.485236Z"
+  },
+  "daemon_shutdown_observed": true,
+  "errors": [
+    "ValueError: first local query used routing fallback"
+  ],
+  "first_query": {
+    "complete": false,
+    "degraded_stages": [],
+    "evidence": {
+      "files": [
+        {
+          "file_path": "helpers.py",
+          "id": "354a12076639c5fae97e4e3295ca1a83",
+          "kind": "file",
+          "stage": "search"
+        },
+        {
+          "file_path": "consumer.py",
+          "id": "274f883bf1a80e9262017a979076b65f",
+          "kind": "file",
+          "stage": "search"
+        }
+      ],
+      "references": [],
+      "relationships": [],
+      "symbols": [
+        {
+          "end_line": 2,
+          "file_path": "helpers.py",
+          "id": "82f918bef870f4b510cc49941149210d",
+          "kind": "symbol",
+          "name": "preserve_input",
+          "node_type": "function",
+          "stage": "search",
+          "start_line": 0
+        },
+        {
+          "end_line": 3,
+          "file_path": "consumer.py",
+          "id": "a7f9dff3a286b382d4c0e5ae36a0b6a5",
+          "kind": "symbol",
+          "name": "preserve_measurement",
+          "node_type": "function",
+          "stage": "search",
+          "start_line": 2
+        },
+        {
+          "end_line": 0,
+          "file_path": "consumer.py",
+          "id": "7f15e23461c6b2b5affe193300125afc",
+          "kind": "symbol",
+          "name": "preserve_input",
+          "node_type": "import",
+          "stage": "search",
+          "start_line": 0
+        },
+        {
+          "end_line": 7,
+          "file_path": "helpers.py",
+          "id": "cdaad338343f3ddb7c4ccfa5ffb8432e",
+          "kind": "symbol",
+          "name": "increment_input",
+          "node_type": "function",
+          "stage": "search",
+          "start_line": 5
+        },
+        {
+          "end_line": 12,
+          "file_path": "helpers.py",
+          "id": "33f15fb64b433d591d8931803d910e3e",
+          "kind": "symbol",
+          "name": "double_input",
+          "node_type": "function",
+          "stage": "search",
+          "start_line": 10
+        }
+      ],
+      "test_targets": []
+    },
+    "goal": "Find the function that returns the input integer unchanged.",
+    "investigation": {
+      "contracts": {
+        "evidence_count": 0,
+        "reason": "No stage assessed this aspect; a separate investigation is needed.",
+        "stages": [],
+        "status": "not_assessed"
+      },
+      "dependents": {
+        "evidence_count": 0,
+        "reason": "No stage assessed this aspect; a separate investigation is needed.",
+        "stages": [],
+        "status": "not_assessed"
+      },
+      "implementation": {
+        "evidence_count": 7,
+        "reason": "The executed stages returned static evidence; correctness is not established.",
+        "stages": [
+          "search"
+        ],
+        "status": "assessed"
+      },
+      "references": {
+        "evidence_count": 0,
+        "reason": "No stage assessed this aspect; a separate investigation is needed.",
+        "stages": [],
+        "status": "not_assessed"
+      },
+      "tests": {
+        "evidence_count": 0,
+        "reason": "No stage assessed this aspect; a separate investigation is needed.",
+        "stages": [],
+        "status": "not_assessed"
+      }
+    },
+    "repo_path": "/private/tmp/scs-bundled.Dobd2s/fixture",
+    "routing": {
+      "anchor_resolution": {
+        "candidates": [],
+        "status": "not_needed"
+      },
+      "confidence": 1.0,
+      "degraded_reason": "classifier_timeout",
+      "fallback_applied": true,
+      "model": "deterministic-v1",
+      "playbook": "DISCOVER",
+      "probabilities": {
+        "DISCOVER": 1.0,
+        "IMPACT": 0.0,
+        "INSPECT_FILES": 0.0,
+        "INVENTORY": 0.0,
+        "REFERENCES": 0.0,
+        "RELATIONSHIPS": 0.0,
+        "UNDERSTAND": 0.0
+      },
+      "provider": "deterministic",
+      "requested_mode": "balanced"
+    },
+    "timings": {
+      "classification_ms": 509.6882078796625,
+      "execution_ms": 3867.4073750153184,
+      "total_ms": 4377.095582894981
+    },
+    "trace": [
+      {
+        "counts": {
+          "neighbors": 0,
+          "queries": 1,
+          "results": 7
+        },
+        "elapsed_ms": 3867.3414583317935,
+        "stage": "search",
+        "status": "ok",
+        "truncated": false
+      }
+    ],
+    "truncated": false
+  },
+  "first_query_seconds": 4.382481291890144,
+  "initial_graph_stats": {
+    "active_job": null,
+    "database_size_bytes": 86016,
+    "embedding_count": 7,
+    "ingestion_stats": {
+      "/private/tmp/scs-bundled.Dobd2s/fixture": {
+        "file_count": 2,
+        "last_indexed": "2026-11-14T23:12:00.398391+00:00"
+      }
+    },
+    "latest_job": {
+      "attempts": 0,
+      "created_at": "2026-11-14T23:11:54Z",
+      "current": 3261138146,
+      "error": null,
+      "finished_at": "2026-11-14T23:12:00Z",
+      "id": "ingest_b51e8c3334ad",
+      "message": "",
+      "mode": "full",
+      "phase": "completed",
+      "status": "completed",
+      "total": 3261138146,
+      "updated_at": "2026-11-14T23:12:00Z"
+    },
+    "nodes_by_type": {
+      "file": 2,
+      "function": 4,
+      "import": 1
+    },
+    "repo_path": "/private/tmp/scs-bundled.Dobd2s/fixture",
+    "retry_after_ms": null,
+    "semantic_search_ready": true,
+    "semantic_search_unavailable_reason": null,
+    "status": "ready",
+    "structural_search_ready": true,
+    "total_nodes": 7,
+    "vector_available": true,
+    "vector_index_count": 7,
+    "vector_index_scope": "project",
+    "vector_unavailable_reason": null,
+    "wait": null
+  },
+  "network_control": {
+    "errno": 1,
+    "network_denial_verified": true,
+    "requested": true
+  },
+  "offline_requested": true,
+  "previous_daemon_identity": null,
+  "ready_graph_stats": {
+    "active_job": null,
+    "database_size_bytes": 86016,
+    "embedding_count": 7,
+    "ingestion_stats": {
+      "/private/tmp/scs-bundled.Dobd2s/fixture": {
+        "file_count": 2,
+        "last_indexed": "2026-11-14T23:12:00.398391+00:00"
+      }
+    },
+    "latest_job": {
+      "attempts": 0,
+      "created_at": "2026-11-14T23:11:54Z",
+      "current": 3261138146,
+      "error": null,
+      "finished_at": "2026-11-14T23:12:00Z",
+      "id": "ingest_b51e8c3334ad",
+      "message": "",
+      "mode": "full",
+      "phase": "completed",
+      "status": "completed",
+      "total": 3261138146,
+      "updated_at": "2026-11-14T23:12:00Z"
+    },
+    "nodes_by_type": {
+      "file": 2,
+      "function": 4,
+      "import": 1
+    },
+    "repo_path": "/private/tmp/scs-bundled.Dobd2s/fixture",
+    "retry_after_ms": null,
+    "semantic_search_ready": true,
+    "semantic_search_unavailable_reason": null,
+    "status": "ready",
+    "structural_search_ready": true,
+    "total_nodes": 7,
+    "vector_available": true,
+    "vector_index_count": 7,
+    "vector_index_scope": "project",
+    "vector_unavailable_reason": null,
+    "wait": null
+  },
+  "reused_index": true,
+  "source_after": {
+    "consumer.py": "044a71f65b67e156d5b4a5d0562e877b4945d88319af67da97b0885986100d25",
+    "helpers.py": "7eaef684decd0fd8724bcff5620f6dc25f4319ad10cbe4d9e4c6d95f1ab524d3"
+  },
+  "source_before": {
+    "consumer.py": "044a71f65b67e156d5b4a5d0562e877b4945d88319af67da97b0885986100d25",
+    "helpers.py": "7eaef684decd0fd8724bcff5620f6dc25f4319ad10cbe4d9e4c6d95f1ab524d3"
+  },
+  "started_at": "2026-11-14T23:15:38.734067+00:00",
+  "startup_seconds": 0.8307101670652628,
+  "state_root": "/private/tmp/scs-bundled.Dobd2s",
+  "status": "failed"
+}

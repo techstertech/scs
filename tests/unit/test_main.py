@@ -11,12 +11,12 @@ from scs.providers.openai_compatible_reranking import (
 )
 
 
-def test_reranker_is_disabled_without_configured_model(
+def test_external_reranker_is_disabled_without_configured_model(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "user"))
 
-    assert build_reranker(SCSSettings()) is None
+    assert build_reranker(SCSSettings(model_profile="external")) is None
 
 
 @pytest.mark.parametrize("host", ["localhost", "model-host.tailnet.ts.net"])

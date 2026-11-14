@@ -73,14 +73,25 @@ analysis ran. `assessed` describes static evidence, not correctness or execution
 coverage. Existing `complete` still describes the bounded playbook. Unavailable
 reference providers and missing impact indexes cannot masquerade as empty success.
 
+Routing can use bundled local inference or a configured external decision service.
+`routing.provider` is `local` for bundled decisions, `external` for service
+decisions, and `deterministic` for disabled routing or classifier fallback.
+`routing.model` reports the actual selected model identity. Provider selection
+does not infer ownership from the model name.
+
+Complete verified local caches warm before daemon readiness. Missing artifacts
+download on first use. During indexing, the existing durable job reports `models`
+progress while the daemon remains responsive. Local decisions use SCS's bounded
+worker and require no external health endpoint. A truncated, unavailable, or slow
+local classifier uses deterministic fallback with a degradation reason. Check
+repository semantic readiness before searching a new index. A cold daemon can
+report ready while model preparation is pending.
+
 When configured, the external decision service receives only the goal, explicit anchors,
 and SCS playbook choices. A configured daemon reports ready after the service confirms
 the configured model is ready. It waits through short outages and shuts down if
 recovery fails. An inference failure during a query returns deterministic
 discovery evidence with a degradation reason. An unavailable or mismatched external model prevents SCS daemon startup.
-`routing.provider` is `external` for service decisions and `deterministic` for
-disabled routing or classifier fallback. `routing.model` retains the actual
-requested model identity; the provider is never inferred from the model name.
 
 The seven former read tools are now internal service routes. Existing MCP
 callers must use `query_code`; the [migration guide](query-code-migration.md)

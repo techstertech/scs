@@ -14,17 +14,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from scs.orchestration.decision import (
     PLAYBOOK_DESCRIPTIONS,
+    PLAYBOOK_SELECTION_INSTRUCTIONS,
     Playbook,
     RoutingDecision,
     RoutingRequest,
     eligible_playbooks,
 )
 
-QUESTION: Final[str] = (
-    "Select the single best available code investigation workflow for this goal. "
-    "Only explicit state fields count as anchors; when a goal lacks required "
-    "anchors, discover relevant code first."
-)
+QUESTION: Final[str] = PLAYBOOK_SELECTION_INSTRUCTIONS
 MAX_RESPONSE_BYTES = 16_384
 HEALTH_INTERVAL_SECONDS = 0.25
 RECOVERY_TIMEOUT_SECONDS = 30.0

@@ -49,8 +49,9 @@ and the agent-facing MCP endpoint.
 - SCSWire never unlinks a successfully connected live socket. Only a same-UID,
   connection-refused stale socket may be reclaimed.
 - MCP exposes only the inventory in `scs.mcp.inventory`.
-- Decision models run only through the configured external API. SCS owns no
-  decision checkpoint or inference runtime; readiness verifies the configured model.
+- Bundled local models use one lazy, bounded inference runtime and verified
+  artifacts under `SCS_HOME`. Existing external provider settings retain their
+  behavior; configured external decision readiness verifies the exact model.
 - No repository-mutating LSP capability or MCP tool is allowed.
 - A fresh root stays empty across restart until an explicit index request.
 

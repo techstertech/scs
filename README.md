@@ -16,13 +16,20 @@ repository only after an explicit request and never changes repository source.
 ## Requirements
 
 - Stable releases support Apple Silicon macOS and x86-64 Linux with CPython 3.14.
-- Indexing requires an embedding provider. The default uses the OpenAI API;
-  local providers are also available. See [provider configuration](docs/configuration.md).
-- Decision models are optional and run in an external service. The
+- Source builds on Apple Silicon with macOS 14+ include local inference runtimes.
+  Fresh configurations use Qwen embeddings, Qwen reranking, and English Laya.
+  Models download automatically on first use and then work offline.
+- Linux, older Macs, and existing model configurations retain external providers.
+  See [provider configuration](docs/configuration.md).
+- External decision services remain supported. The
   [KEV-4B setup](#optional-external-decision-routing) below enables model-based
   routing. Without a configured model, SCS uses deterministic routing.
 
 ## Quick start
+
+The bundled model profile is currently available from source. Published releases
+through 0.4.1 still require embedding-provider configuration. For the source
+workflow, see [Development](#development) and [bundled models](#bundled-local-models).
 
 Download the installer and checksum manifest from the same
 [GitHub Release](https://github.com/techstertech/scs/releases), verify the
@@ -43,8 +50,8 @@ checksum-verified `uv` binary when necessary. Current macOS releases are not
 Apple-signed or notarized. See
 [distribution and upgrade details](docs/github-releases-distribution.md).
 
-Configure an embedding provider before indexing. For the default OpenAI
-provider, create the configuration directory:
+For published 0.4.x releases, configure an embedding provider before indexing.
+If you choose OpenAI, create the configuration directory:
 
 ```bash
 mkdir -p ~/.scs
@@ -143,11 +150,32 @@ Git-visible changes and updates its index in the background. See
 [indexing and project management](docs/indexing.md) for coverage, limits,
 reindexing, and deletion.
 
-The default OpenAI embedding provider sends source-derived entity text to
+The OpenAI embedding provider sends source-derived entity text to
 the configured API. SCS does not send whole repository files to a
 summarization service. You can instead configure a local OpenAI-compatible
 server or an in-process MLX provider. Provider details and trust controls
 are in [embedding configuration](docs/configuration.md).
+
+## Bundled local models
+
+A fresh supported Mac needs no API key or separate model server. Source builds
+select Qwen3-Embedding-0.6B, Qwen3-Reranker-0.6B, and English Laya. Their pinned
+artifacts total 3.26 GB. Existing model settings keep their current providers.
+
+Run `scs index /path/to/repository` normally. The durable indexing job reports
+the `models` phase while SCS downloads and verifies artifacts. The daemon remains
+responsive. Complete files survive interruption. Cached artifacts support later
+operation without network access.
+
+The local adapters use model-native formatting and one bounded inference worker.
+Fast searches skip reranking. Optional decision or reranking failures retain the
+existing query fallback. An embedding failure leaves indexing visibly unsuccessful.
+
+Artifacts stay under `SCS_HOME/models`. Their revisions, sizes, and checksums are
+fixed in the shipped manifest. See [local configuration](docs/configuration.md#bundled-local-models)
+for profile selection, mixed providers, and disable controls. The
+[model comparison](docs/local-model-comparison-2026-11-14.md) records measurements
+and the remaining physical 16 GB hardware validation gap.
 
 ## Optional external decision routing
 
@@ -282,6 +310,11 @@ installs the repository's pre-commit hook. `just verify` runs strict
 Basedpyright checks, Ruff, Python tests with branch coverage, and the Rust
 workspace tests. Search and query evaluation guidance lives in
 [evals/README.md](evals/README.md).
+
+Use `just smoke-local-models /tmp/scs-local-proof`, then
+`just smoke-local-models-offline /tmp/scs-local-proof` to verify bundled models
+through fresh MCP sessions. These commands retain private fixture state and model
+downloads. See [smoke prerequisites and cleanup](evals/README.md#bundled-model-integration-smoke).
 
 After documentation edits, run `scripts/verify-doc-links.sh` to check local link
 targets. Review section anchors and external URLs separately.

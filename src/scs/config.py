@@ -6,8 +6,10 @@ from collections.abc import Mapping
 from functools import cached_property
 from ipaddress import ip_address
 from pathlib import Path
+import platform
+import sys
 import tomllib
-from typing import ClassVar, Literal, cast, override
+from typing import ClassVar, Final, Literal, cast, override
 from urllib.parse import urlsplit
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
@@ -28,6 +30,42 @@ DEFAULT_LOCAL_EMBEDDING_MODEL = "Qwen3-Embedding-8B-4bit-DWQ"
 DEFAULT_LOCAL_EMBEDDING_DIMENSION = 4096
 DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "http://127.0.0.1:10000/v1"
 DEFAULT_DECISION_BASE_URL = "http://127.0.0.1:10000/v1"
+DEFAULT_BUNDLED_EMBEDDING_DIMENSION: Final[int] = 1024
+
+# Presence, including an explicit disable value, preserves existing intent.
+# Paths alone do not select a provider, except the legacy model-cache override.
+LEGACY_MODEL_SETTINGS: Final[frozenset[str]] = frozenset(
+    {
+        "embedding_provider",
+        "embedding_model",
+        "embedding_dimension",
+        "embedding_batch_size",
+        "embedding_concurrency",
+        "model_cache",
+        "openai_base_url",
+        "openai_api_key",
+        "OPENAI_API_KEY",
+        "openai_compatible_base_url",
+        "openai_compatible_trusted_hosts",
+        "reranking_model",
+        "reranking_provider",
+        "decision_provider",
+        "decision_model",
+        "decision_base_url",
+        "decision_trusted_hosts",
+        "decision_timeout_seconds",
+        "decision_max_concurrency",
+    }
+)
+
+
+def supports_local_models() -> bool:
+    """Keep unsupported systems on the existing external-provider defaults."""
+
+    if sys.platform != "darwin" or platform.machine().lower() != "arm64":
+        return False
+    release = platform.mac_ver()[0]
+    return bool(release) and int(release.split(".", 1)[0]) >= 14
 
 
 class SCSSettings(BaseSettings):
@@ -41,15 +79,12 @@ class SCSSettings(BaseSettings):
     model_cache: Path = Field(
         default_factory=lambda: Path.home() / ".cache" / "scs" / "models"
     )
-    runtime_dir: Path = Field(
-        default_factory=default_runtime_directory
+    runtime_dir: Path = Field(default_factory=default_runtime_directory)
+    log_dir: Path = Field(default_factory=default_log_directory)
+    model_profile: Literal["auto", "local", "external"] = "auto"
+    embedding_provider: Literal["openai", "openai_compatible", "mlx", "local"] = (
+        DEFAULT_EMBEDDING_PROVIDER
     )
-    log_dir: Path = Field(
-        default_factory=default_log_directory
-    )
-    embedding_provider: Literal[
-        "openai", "openai_compatible", "mlx"
-    ] = DEFAULT_EMBEDDING_PROVIDER
     embedding_model: str = DEFAULT_OPENAI_EMBEDDING_MODEL
     embedding_dimension: int = Field(default=DEFAULT_OPENAI_EMBEDDING_DIMENSION, gt=0)
     embedding_batch_size: int = Field(default=32, ge=1, le=256)
@@ -62,7 +97,9 @@ class SCSSettings(BaseSettings):
     openai_compatible_base_url: str = DEFAULT_OPENAI_COMPATIBLE_BASE_URL
     openai_compatible_trusted_hosts: list[str] = Field(default_factory=list)
     reranking_model: str | None = None
+    reranking_provider: Literal["external", "local", "disabled"] = "external"
     decision_model: str | None = Field(default=None, min_length=1, max_length=256)
+    decision_provider: Literal["external", "local", "disabled"] = "external"
     decision_base_url: str = DEFAULT_DECISION_BASE_URL
     decision_trusted_hosts: list[str] = Field(default_factory=list)
     decision_timeout_seconds: float = Field(default=0.5, gt=0, le=1.0)
@@ -86,13 +123,109 @@ class SCSSettings(BaseSettings):
         if not isinstance(values, Mapping):
             return values
         configured = dict(cast(Mapping[str, object], values))
+        profile = configured.get("model_profile", "auto")
+        local_defaults = profile == "local" or (
+            profile == "auto"
+            and not LEGACY_MODEL_SETTINGS.intersection(configured)
+            and supports_local_models()
+        )
+        if local_defaults:
+            configured.setdefault("embedding_provider", "local")
+            for role in ("reranking", "decision"):
+                configured.setdefault(
+                    f"{role}_provider",
+                    "external" if f"{role}_model" in configured else "local",
+                )
+
         provider = configured.get("embedding_provider", DEFAULT_EMBEDDING_PROVIDER)
         if provider in {"openai_compatible", "mlx"}:
             configured.setdefault("embedding_model", DEFAULT_LOCAL_EMBEDDING_MODEL)
             configured.setdefault(
                 "embedding_dimension", DEFAULT_LOCAL_EMBEDDING_DIMENSION
             )
+
+        local_embedding = provider == "local"
+        local_reranking = configured.get("reranking_provider") == "local"
+        local_decision = configured.get("decision_provider") == "local"
+        if local_embedding or local_reranking or local_decision:
+            from scs.local_models.artifacts import ModelRole, load_manifest
+
+            models = load_manifest()
+            if local_embedding:
+                configured.setdefault(
+                    "embedding_model", models[ModelRole.EMBEDDING].identity
+                )
+                configured.setdefault(
+                    "embedding_dimension", DEFAULT_BUNDLED_EMBEDDING_DIMENSION
+                )
+            if local_reranking:
+                configured.setdefault(
+                    "reranking_model", models[ModelRole.RERANKING].identity
+                )
+            if local_decision:
+                configured.setdefault(
+                    "decision_model", models[ModelRole.DECISION].identity
+                )
+            home = configured.get("home", Path.home() / ".scs")
+            if isinstance(home, (str, Path)):
+                configured.setdefault("model_cache", Path(home) / "models")
         return configured
+
+    @model_validator(mode="after")
+    def _validate_local_models(self) -> "SCSSettings":
+        """Reject unsupported bundled identities without affecting custom services."""
+
+        if not self.uses_local_models:
+            return self
+        if not supports_local_models():
+            raise ValueError("local models require Apple Silicon and macOS 14 or later")
+
+        from scs.local_models.artifacts import ModelRole, load_manifest
+
+        models = load_manifest()
+        for selected, identity, role in (
+            (
+                self.embedding_provider == "local",
+                self.embedding_model,
+                ModelRole.EMBEDDING,
+            ),
+            (
+                self.reranking_provider == "local",
+                self.reranking_model,
+                ModelRole.RERANKING,
+            ),
+            (
+                self.decision_provider == "local",
+                self.decision_model,
+                ModelRole.DECISION,
+            ),
+        ):
+            if selected and identity is not None and identity != models[role].identity:
+                raise ValueError(
+                    f"local {role.value} model must use the shipped identity"
+                )
+        if (
+            self.embedding_provider == "local"
+            and self.embedding_dimension != DEFAULT_BUNDLED_EMBEDDING_DIMENSION
+        ):
+            raise ValueError("local embedding dimension must be 1024")
+        if (
+            not self.model_cache.expanduser()
+            .resolve()
+            .is_relative_to(self.home.expanduser().resolve())
+        ):
+            raise ValueError("local model_cache must remain inside SCS_HOME")
+        return self
+
+    @property
+    def uses_local_models(self) -> bool:
+        """Describe effective ownership, including mixed provider configurations."""
+
+        return (
+            self.embedding_provider == "local"
+            or (self.reranking_provider == "local" and self.reranking_model is not None)
+            or (self.decision_provider == "local" and self.decision_model is not None)
+        )
 
     @classmethod
     @override
@@ -145,8 +278,15 @@ class SCSSettings(BaseSettings):
         """Validate the decision transport before applying host trust policy."""
 
         parsed = urlsplit(value)
-        if parsed.scheme != "http" or not parsed.hostname or parsed.username or parsed.password:
-            raise ValueError("decision_base_url must be an absolute credential-free http URL")
+        if (
+            parsed.scheme != "http"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+        ):
+            raise ValueError(
+                "decision_base_url must be an absolute credential-free http URL"
+            )
         if parsed.query or parsed.fragment or parsed.path.rstrip("/") != "/v1":
             raise ValueError("decision_base_url must end at /v1")
         return value.rstrip("/")
@@ -166,8 +306,11 @@ class SCSSettings(BaseSettings):
         """Require explicit trust before sending entity text off the workstation."""
 
         for base_url, trusted, field in (
-            (self.openai_compatible_base_url, self.openai_compatible_trusted_hosts,
-                "openai_compatible_base_url"),
+            (
+                self.openai_compatible_base_url,
+                self.openai_compatible_trusted_hosts,
+                "openai_compatible_base_url",
+            ),
             (self.decision_base_url, self.decision_trusted_hosts, "decision_base_url"),
         ):
             host = urlsplit(base_url).hostname
@@ -188,8 +331,8 @@ class SCSSettings(BaseSettings):
     def _validate_decision_model(cls, value: str | None) -> str | None:
         """Select an external model while retaining the existing disable marker.
 
-        Model identities belong to the configured service. SCS does not map
-        model names to checkpoints or inference implementations.
+        External identities belong to the configured service. Bundled local
+        identities are validated separately against the shipped manifest.
         """
 
         if value is None or value == "disabled":

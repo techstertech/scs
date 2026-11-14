@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import ClassVar, Protocol
+from typing import ClassVar, Final, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -26,7 +26,15 @@ class DecisionProviderKind(StrEnum):
     """Identify the decision implementation independently of its model name."""
 
     EXTERNAL = "external"
+    LOCAL = "local"
     DETERMINISTIC = "deterministic"
+
+
+PLAYBOOK_SELECTION_INSTRUCTIONS: Final[str] = (
+    "Select the single best available code investigation workflow for this goal. "
+    "Only explicit state fields count as anchors; when a goal lacks required "
+    "anchors, discover relevant code first."
+)
 
 
 PLAYBOOK_DESCRIPTIONS: dict[Playbook, str] = {
@@ -48,6 +56,7 @@ PLAYBOOK_DESCRIPTIONS: dict[Playbook, str] = {
         "listing or enumerating all symbols, never for locating code or references."
     ),
 }
+
 
 class SourcePosition(BaseModel):
     """A zero-based location supplied by the caller."""
@@ -86,7 +95,10 @@ class RoutingDecision(BaseModel):
     def _complete_probabilities(self) -> "RoutingDecision":
         if set(self.probabilities) != set(Playbook):
             raise ValueError("probabilities must cover every playbook exactly once")
-        if any(not 0 <= value <= 1 or not _finite(value) for value in self.probabilities.values()):
+        if any(
+            not 0 <= value <= 1 or not _finite(value)
+            for value in self.probabilities.values()
+        ):
             raise ValueError("probabilities must be finite values between zero and one")
         if abs(sum(self.probabilities.values()) - 1.0) > 0.01:
             raise ValueError("probabilities must sum to one")
@@ -131,7 +143,6 @@ class DeterministicDecisionProvider:
             model="deterministic-v1",
             confidence=1.0,
             probabilities={
-                playbook: float(playbook is Playbook.DISCOVER)
-                for playbook in Playbook
+                playbook: float(playbook is Playbook.DISCOVER) for playbook in Playbook
             },
         )

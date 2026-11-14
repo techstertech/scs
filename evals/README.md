@@ -76,15 +76,15 @@ The research commands compare model components with fixed inputs. They leave
 live SCS configuration and indexes unchanged. Run `just setup` first to install
 development dependencies and build the native parser.
 
-Check the four research scripts and their tests with:
+Check the research scripts, the local-model smoke driver, and their tests with:
 
 ~~~bash
 just eval-local-check
 ~~~
 
-This command runs strict Basedpyright, scoped Ruff, and focused tests. It needs
-no inference runtime or model download. Normal `just typecheck` and `just lint`
-do not cover these scripts.
+This command runs strict Basedpyright, scoped Ruff, and focused tests. It does
+not load inference libraries or download models. Normal `just typecheck` and
+`just lint` do not cover these scripts.
 
 Export one committed source snapshot before comparing models:
 
@@ -104,9 +104,9 @@ validated against the frozen corpus. This comparison uses updated symbols
 instead of the older search suite's stale judgments. Keep the corpus, suite
 bytes, cutoff, and candidate count identical between compared runs.
 
-Optional runtime packages use disposable `uv run --with` environments. The
-following versions match the November 2026 comparison. They are research
-dependencies, not SCS production dependencies.
+The following versions match the November 2026 comparison. Supported Mac source
+builds now include the Qwen and Laya inference dependencies. ONNX comparison
+dependencies still use disposable `uv run --with` environments.
 
 ~~~bash
 uv run --frozen --with sentence-transformers==5.7.0 --with torch==2.15.0 \
@@ -157,3 +157,33 @@ latency. Routing reports separate raw model choices from policy previews;
 previews do not prove successful graph anchor resolution. Positive judgments
 are not exhaustive relevance labels. Record the hardware for every run.
 Measurements on a larger Mac do not establish performance on a 16 GB Mac.
+
+## Bundled model integration smoke
+
+Run `just setup` on Apple Silicon with macOS 14 or later. Choose an empty private
+directory outside the checkout. The command creates a generated fixture, its
+index, logs, runtime files, and up to 3.26 GB of verified models there:
+
+~~~bash
+just smoke-local-models /tmp/scs-local-proof
+just smoke-local-models-offline /tmp/scs-local-proof
+~~~
+
+The first command can download models. The second starts a fresh daemon with IP
+networking blocked by macOS. It verifies an actual `EPERM` denial, then queries
+the retained index before requesting any ingestion. Both commands require local
+routing without fallback, successful semantic search and reranking, unchanged
+fixture bytes, complete cached artifacts, and clean daemon shutdown. A failed
+first query stays a failure; the driver does not retry until models are warm.
+
+Existing state requires the driver's matching ownership marker and unchanged
+generated fixture. The driver never uses the user's SCS root or changes model
+configuration. It retains its state for inspection; remove only that private
+directory after reviewing both JSON reports. Reports default to
+`/tmp/scs-local-model-smoke.json` and `/tmp/scs-local-model-offline.json`.
+
+Override the command and report path with the second and third arguments. This
+also permits testing an installed wheel from a disposable environment. Keep the
+same immutable wheel for online and offline checks. The driver records combined
+daemon memory when `vmmap` permits it. This small fixture verifies integration;
+it does not replace retrieval evaluation or physical 16 GB qualification.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-14
+
+- feat(models): bundle local defaults while preserving external providers
+
 ## 0.4.1 - 2026-11-12
 
 - fix(indexing): exclude vendored dependencies regardless of tree size

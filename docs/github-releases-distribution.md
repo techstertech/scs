@@ -27,6 +27,11 @@ installer must agree; `scripts/check-release-version.py` blocks mismatches.
 | macOS 11+ | Apple Silicon | CPython 3.14 | lazy shared daemon |
 | Linux with glibc 2.28+ | x86-64 | CPython 3.14 | lazy shared daemon |
 
+The bundled model profile requires Apple Silicon and macOS 14+. Earlier macOS
+versions and Linux retain external providers. Conditional runtime dependencies
+follow the Darwin kernel version; macOS 14 corresponds to Darwin 23.
+This profile is implemented in source and is not included in published 0.4.x assets.
+
 Intel macOS, Linux ARM, musl Linux, Windows, and offline installation are not
 yet supported. macOS artifacts are currently unsigned and not notarized. Users
 must verify the checksum; GitHub attestations bind artifacts to the workflow.

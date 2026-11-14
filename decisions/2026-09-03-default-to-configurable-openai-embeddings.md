@@ -2,6 +2,10 @@
 
 Status: accepted
 
+The [bundled-profile decision](2026-11-14-bundle-local-default-models.md) replaces
+only the defaults for unconfigured supported Apple Silicon installations.
+Explicit OpenAI and compatible-provider contracts below remain in force.
+
 The OpenAI default remains current. OMLX-specific provider names and settings
 in this historical decision were later replaced by the
 [OpenAI-compatible transport decision](2026-09-22-use-openai-compatible-local-inference.md).

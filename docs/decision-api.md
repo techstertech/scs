@@ -1,8 +1,16 @@
 # External decision API
 
-SCS calls a configured HTTP service to select one of its seven query playbooks.
-The service owns model installation, inference, warmup, and memory use. SCS owns
-its playbook choices and validates every answer. No decision model runs in SCS.
+This page defines the HTTP contract for configured external decision services.
+Those services own model installation, inference, warmup, and memory use. SCS owns
+its playbook choices and validates every answer. The contracts below apply when
+an external decision provider is selected.
+
+The bundled profile instead runs local Laya inference through SCS's shared native
+worker. It uses no decision HTTP endpoint or external readiness dependency.
+Complete verified local caches warm before daemon readiness. Cold downloads run
+through first-use model work, including the durable indexing job.
+See [provider configuration](configuration.md) for selection and
+[runtime ownership](architecture.md#model-providers) for preparation and cleanup.
 
 Set `decision_model` to the service's exact model identity and configure
 `decision_base_url` in `~/.scs/config.toml`:
@@ -12,11 +20,12 @@ decision_model = "your-provider/decision-model@revision"
 decision_base_url = "http://127.0.0.1:10000/v1"
 ```
 
-Omit `decision_model` to disable external decisions. The existing `disabled`
-marker also disables them. SCS accepts no built-in model aliases and pins no
-decision checkpoint. `routing.provider` reports `external` for service decisions
-and `deterministic` for disabled routing or classifier fallback. The separate
-`routing.model` field carries the decision's model identity.
+In the external profile, omit `decision_model` to disable external decisions.
+The existing `disabled` marker also disables them. External model identities are
+never translated to bundled checkpoints. `routing.provider` reports `external`
+for service decisions, `local` for bundled inference, and `deterministic` for
+disabled routing or classifier fallback. The separate `routing.model` field
+carries the decision's actual model identity.
 
 SCS allows loopback hosts by default. An exact non-loopback hostname must be
 listed in `decision_trusted_hosts`. Requests carry no authorization header.

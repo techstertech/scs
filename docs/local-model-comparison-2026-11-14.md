@@ -1,6 +1,13 @@
 # Local model comparison for SCS
 
-Date: 2026-11-14. Status: completed research; runtime integration remains a proposal.
+Date: 2026-11-14. Status: completed research; historical baseline.
+
+The [bundled profile decision](../decisions/2026-11-14-bundle-local-default-models.md)
+replaces the external-only ownership and OpenAI-default descriptions below for
+unconfigured supported Macs. The [implementation spec](../specs/2026-11-14-bundled-local-models.md)
+records current contracts and verification. Integration-pending statements in this
+report describe its pre-implementation snapshot. Measured results remain unchanged;
+physical validation on a 16 GB Mac remains unverified.
 
 ## Recommendation
 

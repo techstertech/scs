@@ -93,11 +93,11 @@ def test_automatic_reindex_idle_interval_cannot_be_shorter_than_active() -> None
         )
 
 
-def test_embedding_defaults_target_openai(
+def test_external_profile_embedding_defaults_target_openai(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "user"))
-    settings = SCSSettings()
+    settings = SCSSettings(model_profile="external")
 
     assert settings.embedding_provider == "openai"
     assert settings.embedding_model == "text-embedding-3-large"

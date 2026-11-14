@@ -1,0 +1,418 @@
+{
+  "cache": {
+    "complete": true,
+    "expected_bytes": 3261138146,
+    "observed_bytes": 3261138146,
+    "roles": {
+      "decision": {
+        "complete_files": 6,
+        "expected_files": 6,
+        "model": "aac6fef/laya-mlx@20aed815fc6acde75733882e7ec0e3f28aeb9717",
+        "observed_bytes": 846195880
+      },
+      "embedding": {
+        "complete_files": 10,
+        "expected_files": 10,
+        "model": "Qwen/Qwen3-Embedding-0.6B@97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+        "observed_bytes": 1207470234
+      },
+      "reranking": {
+        "complete_files": 12,
+        "expected_files": 12,
+        "model": "Qwen/Qwen3-Reranker-0.6B@e61197ed45024b0ed8a2d74b80b4d909f1255473",
+        "observed_bytes": 1207472032
+      }
+    }
+  },
+  "command": "/private/tmp/scs-bundled.Dobd2s/wheel-env/bin/scs",
+  "daemon_identity": {
+    "artifact_sha256": "bd6de8e2b7ae55452b25092133d9bad56ef22e259f00519a2a9c126626d74930",
+    "generation": "28405b4fbff047e0a24e21f32ec78298",
+    "pid": 81597,
+    "protocol_max": 1,
+    "protocol_min": 1,
+    "service": "scs-daemon",
+    "start_time": "2026-11-14T23:34:46.676493Z"
+  },
+  "daemon_shutdown_observed": true,
+  "first_query": {
+    "complete": true,
+    "degraded_stages": [],
+    "evidence": {
+      "files": [],
+      "references": [],
+      "relationships": [],
+      "symbols": [
+        {
+          "end_line": 12,
+          "file_path": "helpers.py",
+          "id": "33f15fb64b433d591d8931803d910e3e",
+          "kind": "symbol",
+          "name": "double_input",
+          "node_type": "function",
+          "stage": "inventory",
+          "start_line": 10
+        },
+        {
+          "end_line": 2,
+          "file_path": "helpers.py",
+          "id": "82f918bef870f4b510cc49941149210d",
+          "kind": "symbol",
+          "name": "preserve_input",
+          "node_type": "function",
+          "stage": "inventory",
+          "start_line": 0
+        },
+        {
+          "end_line": 3,
+          "file_path": "consumer.py",
+          "id": "a7f9dff3a286b382d4c0e5ae36a0b6a5",
+          "kind": "symbol",
+          "name": "preserve_measurement",
+          "node_type": "function",
+          "stage": "inventory",
+          "start_line": 2
+        },
+        {
+          "end_line": 7,
+          "file_path": "helpers.py",
+          "id": "cdaad338343f3ddb7c4ccfa5ffb8432e",
+          "kind": "symbol",
+          "name": "increment_input",
+          "node_type": "function",
+          "stage": "inventory",
+          "start_line": 5
+        }
+      ],
+      "test_targets": []
+    },
+    "goal": "Find the function that returns the input integer unchanged.",
+    "investigation": {
+      "contracts": {
+        "evidence_count": 0,
+        "reason": "No stage assessed this aspect; a separate investigation is needed.",
+        "stages": [],
+        "status": "not_assessed"
+      },
+      "dependents": {
+        "evidence_count": 0,
+        "reason": "No stage assessed this aspect; a separate investigation is needed.",
+        "stages": [],
+        "status": "not_assessed"
+      },
+      "implementation": {
+        "evidence_count": 4,
+        "reason": "The executed stages returned static evidence; correctness is not established.",
+        "stages": [
+          "inventory"
+        ],
+        "status": "assessed"
+      },
+      "references": {
+        "evidence_count": 0,
+        "reason": "No stage assessed this aspect; a separate investigation is needed.",
+        "stages": [],
+        "status": "not_assessed"
+      },
+      "tests": {
+        "evidence_count": 0,
+        "reason": "No stage assessed this aspect; a separate investigation is needed.",
+        "stages": [],
+        "status": "not_assessed"
+      }
+    },
+    "repo_path": "/private/tmp/scs-bundled.Dobd2s/fixture",
+    "routing": {
+      "anchor_resolution": {
+        "candidates": [],
+        "status": "not_needed"
+      },
+      "confidence": 0.135,
+      "degraded_reason": null,
+      "fallback_applied": false,
+      "model": "aac6fef/laya-mlx@20aed815fc6acde75733882e7ec0e3f28aeb9717",
+      "playbook": "INVENTORY",
+      "probabilities": {
+        "DISCOVER": 0.2101,
+        "IMPACT": 0.0,
+        "INSPECT_FILES": 0.1845,
+        "INVENTORY": 0.4505,
+        "REFERENCES": 0.0,
+        "RELATIONSHIPS": 0.0925,
+        "UNDERSTAND": 0.0623
+      },
+      "provider": "local",
+      "requested_mode": "balanced"
+    },
+    "timings": {
+      "classification_ms": 29.11487454548478,
+      "execution_ms": 3.45491711050272,
+      "total_ms": 32.5697916559875
+    },
+    "trace": [
+      {
+        "counts": {
+          "nodes": 4
+        },
+        "elapsed_ms": 3.3772075548768044,
+        "stage": "inventory",
+        "status": "ok",
+        "truncated": false
+      }
+    ],
+    "truncated": false
+  },
+  "first_query_seconds": 0.038837207946926355,
+  "health": {
+    "generation": "28405b4fbff047e0a24e21f32ec78298",
+    "protocol_max": 1,
+    "protocol_min": 1,
+    "ready": true,
+    "service": "scs",
+    "version": "0.4.1"
+  },
+  "initial_graph_stats": {
+    "active_job": null,
+    "database_size_bytes": 86016,
+    "embedding_count": 7,
+    "ingestion_stats": {
+      "/private/tmp/scs-bundled.Dobd2s/fixture": {
+        "file_count": 2,
+        "last_indexed": "2026-11-14T23:12:00.398391+00:00"
+      }
+    },
+    "latest_job": {
+      "attempts": 0,
+      "created_at": "2026-11-14T23:11:54Z",
+      "current": 3261138146,
+      "error": null,
+      "finished_at": "2026-11-14T23:12:00Z",
+      "id": "ingest_b51e8c3334ad",
+      "message": "",
+      "mode": "full",
+      "phase": "completed",
+      "status": "completed",
+      "total": 3261138146,
+      "updated_at": "2026-11-14T23:12:00Z"
+    },
+    "nodes_by_type": {
+      "file": 2,
+      "function": 4,
+      "import": 1
+    },
+    "repo_path": "/private/tmp/scs-bundled.Dobd2s/fixture",
+    "retry_after_ms": null,
+    "semantic_search_ready": true,
+    "semantic_search_unavailable_reason": null,
+    "status": "ready",
+    "structural_search_ready": true,
+    "total_nodes": 7,
+    "vector_available": true,
+    "vector_index_count": 7,
+    "vector_index_scope": "project",
+    "vector_unavailable_reason": null,
+    "wait": null
+  },
+  "network_control": {
+    "errno": 1,
+    "network_denial_verified": true,
+    "requested": true
+  },
+  "offline_requested": true,
+  "previous_daemon_identity": null,
+  "process_residency": {
+    "available": true,
+    "scope": "Combined daemon after indexing, routing, and reranking; physical 16 GB hardware remains untested.",
+    "source": "vmmap -summary",
+    "totals": [
+      "Physical footprint:         4.3G",
+      "Physical footprint (peak):  4.3G"
+    ]
+  },
+  "ready_graph_stats": {
+    "active_job": null,
+    "database_size_bytes": 86016,
+    "embedding_count": 7,
+    "ingestion_stats": {
+      "/private/tmp/scs-bundled.Dobd2s/fixture": {
+        "file_count": 2,
+        "last_indexed": "2026-11-14T23:12:00.398391+00:00"
+      }
+    },
+    "latest_job": {
+      "attempts": 0,
+      "created_at": "2026-11-14T23:11:54Z",
+      "current": 3261138146,
+      "error": null,
+      "finished_at": "2026-11-14T23:12:00Z",
+      "id": "ingest_b51e8c3334ad",
+      "message": "",
+      "mode": "full",
+      "phase": "completed",
+      "status": "completed",
+      "total": 3261138146,
+      "updated_at": "2026-11-14T23:12:00Z"
+    },
+    "nodes_by_type": {
+      "file": 2,
+      "function": 4,
+      "import": 1
+    },
+    "repo_path": "/private/tmp/scs-bundled.Dobd2s/fixture",
+    "retry_after_ms": null,
+    "semantic_search_ready": true,
+    "semantic_search_unavailable_reason": null,
+    "status": "ready",
+    "structural_search_ready": true,
+    "total_nodes": 7,
+    "vector_available": true,
+    "vector_index_count": 7,
+    "vector_index_scope": "project",
+    "vector_unavailable_reason": null,
+    "wait": null
+  },
+  "reused_index": true,
+  "search": {
+    "degraded_reason": null,
+    "degraded_stage": null,
+    "neighbors": [],
+    "queries": [
+      "Find the function that returns the input integer unchanged."
+    ],
+    "query": "Find the function that returns the input integer unchanged.",
+    "query_matches": {
+      "274f883bf1a80e9262017a979076b65f": [
+        0
+      ],
+      "33f15fb64b433d591d8931803d910e3e": [
+        0
+      ],
+      "354a12076639c5fae97e4e3295ca1a83": [
+        0
+      ],
+      "7f15e23461c6b2b5affe193300125afc": [
+        0
+      ],
+      "82f918bef870f4b510cc49941149210d": [
+        0
+      ],
+      "a7f9dff3a286b382d4c0e5ae36a0b6a5": [
+        0
+      ],
+      "cdaad338343f3ddb7c4ccfa5ffb8432e": [
+        0
+      ]
+    },
+    "reranker_applied": true,
+    "results": [
+      {
+        "content": "def preserve_input(value: int) -> int:\n    \"\"\"Return the input integer unchanged.\"\"\"\n    return value",
+        "distance": 0.19244706630706787,
+        "end_line": 2,
+        "file_path": "helpers.py",
+        "id": "82f918bef870f4b510cc49941149210d",
+        "name": "preserve_input",
+        "qualified_name": "helpers.preserve_input",
+        "signature": "(value: int) -> int",
+        "start_line": 0,
+        "type": "function"
+      },
+      {
+        "content": "def preserve_measurement(value: int) -> int:\n    return preserve_input(value)",
+        "distance": 0.4495418071746826,
+        "end_line": 3,
+        "file_path": "consumer.py",
+        "id": "a7f9dff3a286b382d4c0e5ae36a0b6a5",
+        "name": "preserve_measurement",
+        "qualified_name": "consumer.preserve_measurement",
+        "signature": "(value: int) -> int",
+        "start_line": 2,
+        "type": "function"
+      },
+      {
+        "content": "",
+        "distance": 0.3716775178909302,
+        "end_line": 0,
+        "file_path": "consumer.py",
+        "id": "7f15e23461c6b2b5affe193300125afc",
+        "name": "preserve_input",
+        "qualified_name": "consumer.import.helpers.preserve_input",
+        "signature": null,
+        "start_line": 0,
+        "type": "import"
+      },
+      {
+        "content": "def increment_input(value: int) -> int:\n    \"\"\"Add one to the input integer.\"\"\"\n    return value + 1",
+        "distance": 0.3066142201423645,
+        "end_line": 7,
+        "file_path": "helpers.py",
+        "id": "cdaad338343f3ddb7c4ccfa5ffb8432e",
+        "name": "increment_input",
+        "qualified_name": "helpers.increment_input",
+        "signature": "(value: int) -> int",
+        "start_line": 5,
+        "type": "function"
+      },
+      {
+        "content": "def double_input(value: int) -> int:\n    \"\"\"Multiply the input integer by two.\"\"\"\n    return value * 2",
+        "distance": 0.4271830916404724,
+        "end_line": 12,
+        "file_path": "helpers.py",
+        "id": "33f15fb64b433d591d8931803d910e3e",
+        "name": "double_input",
+        "qualified_name": "helpers.double_input",
+        "signature": "(value: int) -> int",
+        "start_line": 10,
+        "type": "function"
+      },
+      {
+        "content": "file: helpers.py",
+        "distance": 0.6644691228866577,
+        "end_line": 13,
+        "file_path": "helpers.py",
+        "id": "354a12076639c5fae97e4e3295ca1a83",
+        "name": "helpers.py",
+        "qualified_name": "helpers",
+        "signature": null,
+        "start_line": 0,
+        "type": "file"
+      },
+      {
+        "content": "file: consumer.py",
+        "distance": 0.6615511178970337,
+        "end_line": 4,
+        "file_path": "consumer.py",
+        "id": "274f883bf1a80e9262017a979076b65f",
+        "name": "consumer.py",
+        "qualified_name": "consumer",
+        "signature": null,
+        "start_line": 0,
+        "type": "file"
+      }
+    ],
+    "retrieval_mode": "semantic_reranked",
+    "semantic_available": true,
+    "timed_out": false,
+    "timings": {
+      "embedding_ms": 104.79795886203647,
+      "lexical_ms": 2.706249710172415,
+      "rerank_ms": 126.55095895752311,
+      "total_ms": 231.99900006875396,
+      "vector_ms": 0.3854171372950077
+    },
+    "total": 7
+  },
+  "search_seconds": 0.23647987516596913,
+  "source_after": {
+    "consumer.py": "044a71f65b67e156d5b4a5d0562e877b4945d88319af67da97b0885986100d25",
+    "helpers.py": "7eaef684decd0fd8724bcff5620f6dc25f4319ad10cbe4d9e4c6d95f1ab524d3"
+  },
+  "source_before": {
+    "consumer.py": "044a71f65b67e156d5b4a5d0562e877b4945d88319af67da97b0885986100d25",
+    "helpers.py": "7eaef684decd0fd8724bcff5620f6dc25f4319ad10cbe4d9e4c6d95f1ab524d3"
+  },
+  "started_at": "2026-11-14T23:34:41.730883+00:00",
+  "startup_seconds": 5.048386750277132,
+  "state_root": "/private/tmp/scs-bundled.Dobd2s",
+  "status": "completed"
+}

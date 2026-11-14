@@ -14,7 +14,7 @@ relationships, ingestion checkpoints, metadata filters, traversal, and semantic
 search onto generic TSG primitives. The Python, SCSWire, MCP, and CLI contracts
 remain SCS-owned without coupling TSG to code intelligence.
 
-TSG is pinned to the immutable `v0.2.4` Git tag and its resolved commit in
+TSG is pinned to the immutable `v0.2.5` Git tag and its resolved commit in
 `Cargo.lock`; building SCS does not require a sibling TSG checkout. TSG keeps
 canonical graph, catalog, and embedding state transactionally in SQLite and
 treats its vector index as a rebuildable accelerator.
@@ -44,6 +44,63 @@ connection is its lease, so abrupt termination cannot leave an orphan lease.
 Runtime artifacts live under `~/Library/Application Support/SCS/` on macOS and
 `$XDG_RUNTIME_DIR/scs` on Linux, falling back to
 `~/.local/state/scs/runtime`. Persistent indexes live only under `SCS_HOME`.
+
+## Model providers
+
+Unconfigured Apple Silicon Macs with macOS 14 or later select the bundled local
+profile. It supplies Qwen embeddings, Qwen reranking, and English Laya routing.
+Automatic selection preserves existing explicit model configuration. OpenAI,
+OpenAI-compatible services, legacy MLX embeddings, and custom decision services
+retain their provider contracts. Explicit selectors can combine local and
+external roles. See [provider configuration](configuration.md).
+
+```text
+provider configuration -> existing external adapters -> configured services
+                       |
+                       +-> shared local runtime
+                                |
+                         verified artifact cache
+                                |
+                         one native worker
+                                |
+                        Qwen / Qwen / Laya
+```
+
+Local runtime construction loads no models. Startup checks the cache without
+downloading. If every selected model is complete and verified, startup attempts
+to load those models before publishing its ready socket. This keeps checkpoint
+loading outside the first query's classifier deadline.
+
+With an incomplete cache, startup avoids heavy imports and first use prepares
+the selected local roles. During explicit indexing, this work stays inside the
+durable background job and reports `models` progress. The socket and health
+requests remain responsive. A cold daemon can report ready while model preparation
+is pending. Repository statistics report semantic readiness separately.
+
+Bundled artifacts default to `SCS_HOME/models`; local cache overrides must remain
+inside `SCS_HOME`. The shipped manifest pins every model revision, path, length,
+and checksum. Downloads use anonymous HTTPS requests for those fixed artifacts.
+Source and query text never enter download requests. Completed files are verified
+before loading. Partial transfers cannot replace a verified artifact. Local
+loaders cannot fetch replacements or execute remote Python code.
+
+One bounded worker serializes local native operations across indexing and query
+event loops. A cancelled caller does not free native capacity before its operation
+finishes. Shutdown signals transfer cancellation before draining active service
+requests, then releases model references and the worker.
+
+Model-native Qwen formatting belongs to the local adapter. External adapters keep
+their existing request formatting. Local embedding metadata includes the checkpoint
+and formatting identity, so incompatible vectors use the existing quarantine and
+rebuild mechanism. Explicit external configurations keep their existing identities.
+
+Local routing and reranking failures use the existing query fallbacks. Required
+embedding failures leave indexing unsuccessful without acknowledging source hashes.
+Configured external decisions retain their model-qualified readiness gate, health
+monitoring, and bounded outage recovery. Local models do not require that HTTP
+service. The [bundled profile decision](../decisions/2026-11-14-bundle-local-default-models.md)
+and [implementation spec](../specs/2026-11-14-bundled-local-models.md) define ownership
+and acceptance criteria.
 
 ## Verification
 
