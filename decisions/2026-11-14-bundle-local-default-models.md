@@ -11,7 +11,8 @@ superseded-by:
 related-specs:
   - specs/2026-11-14-bundled-local-models.md
 implementation:
-  commits: []
+  commits:
+    - dabe1d3d62231e9aaa02d50d92c4915aa40dac9b
   pull-request:
 ---
 

@@ -10,7 +10,8 @@ supersedes:
   - specs/2026-10-28-external-decision-api.md (external-only runtime ownership and unconfigured Apple Silicon selection only)
 superseded-by:
 implementation:
-  commits: []
+  commits:
+    - dabe1d3d62231e9aaa02d50d92c4915aa40dac9b
   pull-request:
 ---
 
