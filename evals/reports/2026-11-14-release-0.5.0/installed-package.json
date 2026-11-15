@@ -1,0 +1,11 @@
+{
+  "installed_version": "0.5.0",
+  "installed_files_match_verified_public_wheel": 75,
+  "constrained_dependencies_verified": 77,
+  "background_jobs_created_after_upgrade": {
+    "completed": 42
+  },
+  "outstanding_jobs": 0,
+  "earlier_embedding_connection_failure_predates_upgrade": true,
+  "earlier_failure_followed_by_successful_full_reconciliation": true
+}

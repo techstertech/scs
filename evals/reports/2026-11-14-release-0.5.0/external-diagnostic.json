@@ -1,0 +1,18 @@
+{
+  "installed_old_version": "0.4.0",
+  "public_new_version": "0.5.0",
+  "external_provider_class_ast_equal": true,
+  "instructions_identical": true,
+  "query_orchestrator_byte_identical": true,
+  "observed_first_new_smoke_failure": {
+    "stage": "classification",
+    "degraded_reason": "classifier_timeout",
+    "configured_deadline_seconds": 0.5,
+    "observed_classification_ms": 501.2073749676347,
+    "source": "Initial public external-review stderr; the original failed report is retained."
+  },
+  "old_version_smoke_after_service_activity": {
+    "passed": true,
+    "checks": 10
+  }
+}

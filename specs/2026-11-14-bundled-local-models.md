@@ -6,6 +6,8 @@ created: 2026-11-14
 updated: 2026-11-14
 owner: code-intelligence
 decision: decisions/2026-11-14-bundle-local-default-models.md
+related-specs:
+  - specs/2026-11-14-release-0.5.0.md
 supersedes:
   - specs/2026-10-28-external-decision-api.md (external-only runtime ownership and unconfigured Apple Silicon selection only)
 superseded-by:
@@ -179,9 +181,14 @@ by this source implementation task.
 
 ## Verification results
 
-Implementation is complete in source. The spec remains `validating` because
-physical 16 GB qualification and execution on unsupported platforms remain open.
-This task does not publish or install a release.
+Implementation is complete in source and subsequently shipped in
+[v0.5.0](https://github.com/techstertech/scs/releases/tag/v0.5.0).
+The spec remains `validating` because physical 16 GB qualification and
+older-macOS execution remain open. The original implementation task did not
+publish or install a release. The separate
+[release and upgrade follow-up](2026-11-14-release-0.5.0.md) records those results.
+
+The table below preserves the original source-task evidence.
 
 | Criterion | State | Evidence |
 | --- | --- | --- |
@@ -217,6 +224,26 @@ contains first-use, failure, installed-wheel, and restart reports. Combined
 daemon residency is observational evidence on the available larger Mac. It does
 not establish performance on a physical 16 GB Mac.
 
+### Published release follow-up
+
+The [0.5.0 release record](2026-11-14-release-0.5.0.md) adds public artifact and
+installed-product verification. Hosted macOS/Linux CI and release CI pass. Both
+public wheels preserve the source manifest and conditional dependency markers.
+A disposable public-installer installation satisfies the 77 locked runtime
+constraints and passes real local-model indexing, queries, and offline restart
+under OS-enforced IP denial.
+
+That installation uses a cache populated before publication through pinned
+artifact verification. Its fixture index starts empty. The original source-task
+cold-download proof remains separate; no public cold-download result is claimed.
+The verified installer also upgrades the existing global 0.4.0 installation to
+0.5.0 while preserving configuration and all 23 project identities. Its external
+providers remain selected, and fresh MCP and external review checks pass.
+
+Criterion 9 now includes executed hosted Linux verification. Older-macOS runtime
+compatibility remains inferred from dependency markers. Physical 16 GB testing
+remains unverified. The release record documents operational checks and cleanup.
+
 ### Verification findings and scope
 
 The first real cached restart exposed a classifier timeout while models loaded.
@@ -233,5 +260,6 @@ additional global rule or framework was needed.
 Recommended review order is configuration selection, daemon composition, runtime
 admission, artifact integrity, model adapters, and compatibility/integration tests.
 Set `model_profile = external` to return to legacy selection. An explicit provider
-change can require the existing vector rebuild. No production rollback is needed
-because no installed service, user configuration, or live index was changed.
+change can require the existing vector rebuild. The original source task changed
+no installed service, user configuration, or live index. The subsequent installed
+upgrade and its recovery path belong to the linked release follow-up.

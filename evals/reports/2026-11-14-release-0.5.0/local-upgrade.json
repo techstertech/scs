@@ -1,0 +1,19 @@
+{
+  "all_original_projects_semantically_ready": true,
+  "all_original_projects_structurally_ready": true,
+  "configuration_bytes_and_mode_preserved": true,
+  "current_project_count": 23,
+  "daemon_ready_during_fresh_mcp": true,
+  "daemon_version": "0.5.0",
+  "doctor_passed": true,
+  "existing_mcp_session_requires_reconnection": true,
+  "external_providers_remain_selected": true,
+  "historical_sources_unavailable": 4,
+  "installed_version": "0.5.0",
+  "mcp_existing_source_verified": true,
+  "mcp_inventory_verified": true,
+  "original_projects_preserved": 23,
+  "outstanding_jobs_at_final_check": 0,
+  "previous_version": "0.4.0",
+  "resolved_settings_preserved": true
+}

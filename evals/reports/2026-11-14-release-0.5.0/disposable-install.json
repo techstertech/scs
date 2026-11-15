@@ -1,0 +1,6 @@
+{
+  "version": "0.5.0",
+  "imports_from_disposable_installation": true,
+  "constrained_dependencies_verified": 77,
+  "global_launcher_hidden_during_installation": true
+}

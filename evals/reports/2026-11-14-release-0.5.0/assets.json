@@ -1,0 +1,71 @@
+{
+  "assets": [
+    {
+      "bytes": 574,
+      "name": "SHA256SUMS",
+      "sha256": "93d0d2c929144545daa3fbe5fceae5f0b1e95542edfa474605030cd328fa3e57"
+    },
+    {
+      "bytes": 8151,
+      "name": "scs-0.5.0-constraints.txt",
+      "sha256": "c52d1c955b46965dafdd08ffdd5eefe61d0e8fff93250bb4e6444c7405d8ce7c"
+    },
+    {
+      "bytes": 4113910,
+      "name": "scs-0.5.0-cp314-cp314-macosx_11_0_arm64.whl",
+      "sha256": "b226a7c119f6989aa7a72323300f83dada4a286b426dcbbedef7a6f9ec07b4b9"
+    },
+    {
+      "bytes": 5287894,
+      "name": "scs-0.5.0-cp314-cp314-manylinux_2_28_x86_64.whl",
+      "sha256": "22bd3d6818a61698d190e0d93a2c956b6a27111556eed27248cbd8aa24c27a20"
+    },
+    {
+      "bytes": 803,
+      "name": "scs-0.5.0.spdx.json",
+      "sha256": "ed62d615fa086925df7a726d70e0b74a53282ad3678f806cf865764767c2bb7e"
+    },
+    {
+      "bytes": 218505,
+      "name": "scs-0.5.0.tar.gz",
+      "sha256": "73f32bf959d20e92f22223870b3d5f8829975d8d27b72520d4d3e49ed25902a7"
+    },
+    {
+      "bytes": 6339,
+      "name": "scs-installer-0.5.0.sh",
+      "sha256": "fb7fc7f37b4753cd064d6e95d24b4a4460e7fb825485d6524c760700eb6bea22"
+    }
+  ],
+  "release": "v0.5.0",
+  "source_commit": "67903f4ea23afa724db26d67fef6b27a75a107c3",
+  "wheels": [
+    {
+      "conditional_dependencies": {
+        "linux_x86_64": [],
+        "macos13_arm64": [],
+        "macos14_arm64": [
+          "laya-mlx",
+          "sentence-transformers",
+          "torch"
+        ]
+      },
+      "manifest_sha256": "aaa97e7c23ac3f0107fcda36c157280eb08c6c3478508c4e8eb4c4c81bf11fbe",
+      "name": "scs-0.5.0-cp314-cp314-macosx_11_0_arm64.whl",
+      "source_files_equal": 74
+    },
+    {
+      "conditional_dependencies": {
+        "linux_x86_64": [],
+        "macos13_arm64": [],
+        "macos14_arm64": [
+          "laya-mlx",
+          "sentence-transformers",
+          "torch"
+        ]
+      },
+      "manifest_sha256": "aaa97e7c23ac3f0107fcda36c157280eb08c6c3478508c4e8eb4c4c81bf11fbe",
+      "name": "scs-0.5.0-cp314-cp314-manylinux_2_28_x86_64.whl",
+      "source_files_equal": 74
+    }
+  ]
+}

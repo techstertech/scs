@@ -1,0 +1,49 @@
+{
+  "passed": true,
+  "checks": [
+    {
+      "check": "fresh MCP inventory and schema",
+      "passed": true
+    },
+    {
+      "check": "native fixture ingestion",
+      "passed": true,
+      "nodes": 18
+    },
+    {
+      "check": "changed-symbol paths, tests, contract authority, coverage",
+      "passed": true,
+      "test_targets": [
+        "tests/test_consumer.py"
+      ]
+    },
+    {
+      "check": "grounded reference lookup",
+      "passed": true
+    },
+    {
+      "check": "duplicate symbol ambiguity stops traversal",
+      "passed": true
+    },
+    {
+      "check": "bounded output reports partial coverage",
+      "passed": true
+    },
+    {
+      "check": "empty and unavailable are distinct",
+      "passed": true
+    },
+    {
+      "check": "range validation and containment",
+      "passed": true
+    },
+    {
+      "check": "source bytes preserved",
+      "passed": true
+    },
+    {
+      "check": "fixture index removed",
+      "passed": true
+    }
+  ]
+}
