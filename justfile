@@ -1,8 +1,8 @@
 set shell := ["sh", "-cu"]
 
 repository := "leonardoventurini/scs"
-local_eval_scripts := "scripts/export-model-corpus.py scripts/evaluate-local-embeddings.py scripts/evaluate-local-reranking.py scripts/evaluate-local-routing.py scripts/smoke-local-models.py"
-local_eval_tests := "tests/unit/test_model_corpus_export.py tests/unit/test_local_embedding_evaluation.py tests/unit/test_local_reranking_evaluation.py tests/unit/test_local_routing_evaluation.py tests/unit/test_local_model_smoke.py"
+local_eval_scripts := "scripts/export-model-corpus.py scripts/evaluate-local-embeddings.py scripts/evaluate-local-reranking.py scripts/evaluate-local-routing.py scripts/smoke-local-models.py scripts/smoke-review.py"
+local_eval_tests := "tests/unit/test_model_corpus_export.py tests/unit/test_local_embedding_evaluation.py tests/unit/test_local_reranking_evaluation.py tests/unit/test_local_routing_evaluation.py tests/unit/test_local_model_smoke.py tests/unit/test_review_smoke.py"
 
 setup:
     uv sync --all-groups

@@ -76,7 +76,7 @@ The research commands compare model components with fixed inputs. They leave
 live SCS configuration and indexes unchanged. Run `just setup` first to install
 development dependencies and build the native parser.
 
-Check the research scripts, the local-model smoke driver, and their tests with:
+Check the research scripts, both MCP smoke drivers, and their tests with:
 
 ~~~bash
 just eval-local-check

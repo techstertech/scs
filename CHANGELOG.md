@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-14
+
+- fix(evals): preserve nested review smoke failures
+
 ## 0.5.0 - 2026-11-14
 
 - feat(models): bundle local defaults while preserving external providers

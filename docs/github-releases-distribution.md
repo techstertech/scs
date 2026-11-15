@@ -200,6 +200,12 @@ stops the `scs` found on `PATH` before replacement; directory overrides alone
 do not isolate that shutdown. Keep the selected `uv` executable available and
 check the new launcher by its absolute path.
 
+Compare `scs list` and project-store identities before and after an upgrade.
+Verify configuration bytes, permissions, and effective providers separately.
+MCP requests require an existing source directory. Retained indexes can remain
+healthy after a source directory moves or disappears. Check those stores through
+the catalog and storage control plane. Preserve them during upgrade validation.
+
 The workflow uses least-privilege job permissions. Only the final publish job
 receives `contents: write`, `id-token: write`, and `attestations: write`. Every
 third-party action is pinned to a full commit SHA.
@@ -226,6 +232,9 @@ Run the command after indexing and other model-heavy work finishes. A provider
 timeout fails the smoke gate rather than being treated as a successful run.
 The output JSON is replaced on every invocation; failures record `passed: false`
 and return nonzero, so an earlier success cannot satisfy a later gate.
+On current source checkouts, failed reports retain the original `error` type
+and bounded root-cause messages in `errors`, including nested MCP task failures.
+Use `just eval-local-check` to check both smoke drivers and their failure guards.
 
 For a disposable smoke run with an existing configuration, isolate all three
 paths. Changing `SCS_HOME` alone still uses the normal runtime socket and can

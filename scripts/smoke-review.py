@@ -9,10 +9,25 @@ import json
 import os
 from pathlib import Path
 import tempfile
-from typing import cast
+from typing import Final, cast
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+
+MAX_ERROR_DETAIL_CHARACTERS: Final[int] = 1_000
+
+
+def _error_details(error: BaseException) -> list[str]:
+    """Retain root causes when MCP task groups wrap a failed smoke assertion."""
+
+    if isinstance(error, BaseExceptionGroup):
+        group = cast(BaseExceptionGroup[BaseException], error)
+        return [
+            message
+            for nested in group.exceptions
+            for message in _error_details(nested)
+        ]
+    return [f"{type(error).__name__}: {str(error)[:MAX_ERROR_DETAIL_CHARACTERS]}"]
 
 
 def objects(value: object) -> list[dict[str, object]]:
@@ -339,6 +354,13 @@ if __name__ == "__main__":
         asyncio.run(run(command, output))
     except Exception as error:
         output.write_text(
-            json.dumps({"passed": False, "error": type(error).__name__}) + "\n"
+            json.dumps(
+                {
+                    "passed": False,
+                    "error": type(error).__name__,
+                    "errors": _error_details(error),
+                }
+            )
+            + "\n"
         )
         raise
