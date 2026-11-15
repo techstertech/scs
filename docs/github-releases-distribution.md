@@ -30,7 +30,8 @@ installer must agree; `scripts/check-release-version.py` blocks mismatches.
 The bundled model profile requires Apple Silicon and macOS 14+. Earlier macOS
 versions and Linux retain external providers. Conditional runtime dependencies
 follow the Darwin kernel version; macOS 14 corresponds to Darwin 23.
-This profile is implemented in source and is not included in published 0.4.x assets.
+This profile is included in releases starting with 0.5.0. Physical 16 GB hardware
+qualification remains unverified.
 
 Intel macOS, Linux ARM, musl Linux, Windows, and offline installation are not
 yet supported. macOS artifacts are currently unsigned and not notarized. Users
@@ -42,7 +43,7 @@ Download the versioned installer and `SHA256SUMS` from the same release. Verify
 before execution:
 
 ```bash
-VERSION=0.4.0
+VERSION=0.5.0
 curl -fsSLO "https://github.com/leonardoventurini/scs/releases/download/v${VERSION}/scs-installer-${VERSION}.sh"
 curl -fsSLO "https://github.com/leonardoventurini/scs/releases/download/v${VERSION}/SHA256SUMS"
 shasum -a 256 -c SHA256SUMS --ignore-missing

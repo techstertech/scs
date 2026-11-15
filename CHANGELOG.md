@@ -1,8 +1,13 @@
 # Changelog
 
-## 2026-11-14
+## 0.5.0 - 2026-11-14
 
 - feat(models): bundle local defaults while preserving external providers
+- Add verified first-use downloads, offline operation, and one bounded native
+  worker for Qwen embeddings, Qwen reranking, and English Laya on supported Macs.
+- Preserve existing custom external providers and support explicit mixed roles.
+- Provide repeatable installed-model smoke checks with OS network denial.
+- Physical 16 GB hardware qualification remains unverified.
 
 ## 0.4.1 - 2026-11-12
 

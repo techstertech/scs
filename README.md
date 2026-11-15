@@ -16,7 +16,7 @@ repository only after an explicit request and never changes repository source.
 ## Requirements
 
 - Stable releases support Apple Silicon macOS and x86-64 Linux with CPython 3.14.
-- Source builds on Apple Silicon with macOS 14+ include local inference runtimes.
+- SCS 0.5.0 includes local inference runtimes on Apple Silicon with macOS 14+.
   Fresh configurations use Qwen embeddings, Qwen reranking, and English Laya.
   Models download automatically on first use and then work offline.
 - Linux, older Macs, and existing model configurations retain external providers.
@@ -27,16 +27,16 @@ repository only after an explicit request and never changes repository source.
 
 ## Quick start
 
-The bundled model profile is currently available from source. Published releases
-through 0.4.1 still require embedding-provider configuration. For the source
-workflow, see [Development](#development) and [bundled models](#bundled-local-models).
+Version 0.5.0 includes bundled models on Apple Silicon with macOS 14+.
+Existing model settings preserve external providers. See
+[bundled models](#bundled-local-models) for download and offline behavior.
 
 Download the installer and checksum manifest from the same
 [GitHub Release](https://github.com/techstertech/scs/releases), verify the
 installer, and install SCS:
 
 ```bash
-VERSION=0.4.0
+VERSION=0.5.0
 curl -fsSLO "https://github.com/techstertech/scs/releases/download/v${VERSION}/scs-installer-${VERSION}.sh"
 curl -fsSLO "https://github.com/techstertech/scs/releases/download/v${VERSION}/SHA256SUMS"
 shasum -a 256 -c SHA256SUMS --ignore-missing
@@ -50,8 +50,8 @@ checksum-verified `uv` binary when necessary. Current macOS releases are not
 Apple-signed or notarized. See
 [distribution and upgrade details](docs/github-releases-distribution.md).
 
-For published 0.4.x releases, configure an embedding provider before indexing.
-If you choose OpenAI, create the configuration directory:
+On Linux or older macOS versions, configure an embedding provider before
+indexing. To use OpenAI on any supported system, create the configuration directory:
 
 ```bash
 mkdir -p ~/.scs
@@ -158,8 +158,8 @@ are in [embedding configuration](docs/configuration.md).
 
 ## Bundled local models
 
-A fresh supported Mac needs no API key or separate model server. Source builds
-select Qwen3-Embedding-0.6B, Qwen3-Reranker-0.6B, and English Laya. Their pinned
+A fresh supported Mac needs no API key or separate model server. SCS 0.5.0
+selects Qwen3-Embedding-0.6B, Qwen3-Reranker-0.6B, and English Laya. Their pinned
 artifacts total 3.26 GB. Existing model settings keep their current providers.
 
 Run `scs index /path/to/repository` normally. The durable indexing job reports

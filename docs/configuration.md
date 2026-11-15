@@ -24,9 +24,9 @@ roles remain disabled for those existing configurations. SCS does not rewrite TO
 
 ## Bundled local models
 
-Source builds include inference dependencies on supported Macs. Published releases
-through 0.4.1 do not include this profile. First model use downloads the selected
-roles. Later operations use verified files from `SCS_HOME/models`.
+Version 0.5.0 and later include inference dependencies on supported Macs. First
+model use downloads the selected roles. Later operations use verified files
+from `SCS_HOME/models`.
 
 For a fresh configuration, no settings are required. To choose bundled defaults
 explicitly, use:
