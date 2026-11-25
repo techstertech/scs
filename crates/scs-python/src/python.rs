@@ -797,6 +797,19 @@ impl PyKnowledgeGraph {
         to_json_pyobject(py, &files)
     }
 
+    /// Get all ingested file paths and recorded languages for a repo. Returns JSON object string.
+    fn get_all_ingested_file_languages(
+        &self,
+        py: Python<'_>,
+        repo_path: &str,
+    ) -> PyResult<Py<PyAny>> {
+        let languages = py
+            .detach(|| self.inner.get_all_ingested_file_languages(repo_path))
+            .map_err(scs_err)?;
+
+        to_json_pyobject(py, &languages)
+    }
+
     /// Get per-repo ingestion stats. Returns JSON object string.
     ///
     /// GIL released during the query so stats polling doesn't block during
@@ -975,10 +988,14 @@ impl PyKnowledgeGraph {
 fn parse_file(py: Python<'_>, source: &str, file_path: &str) -> PyResult<Option<Py<PyAny>>> {
     use scs_parser::parser::registry::get_parser;
 
-    // Extract file extension.
-    let ext = file_path.rfind('.').map(|i| &file_path[i..]).unwrap_or("");
+    // Extract file extension matching Path.suffix semantics (case-insensitive).
+    let ext = std::path::Path::new(file_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| format!(".{}", e.to_ascii_lowercase()))
+        .unwrap_or_default();
 
-    let parser = match get_parser(ext) {
+    let parser = match get_parser(&ext) {
         Some(p) => p,
         None => return Ok(None),
     };

@@ -55,6 +55,7 @@ class FakeGraph:
         self.edges: list[dict[str, object]] = []
         self.embeddings: dict[str, list[float]] = {}
         self.hashes: dict[str, dict[str, str]] = {}
+        self.languages: dict[str, dict[str, str]] = {}
         self.fail_at = fail_at
         self.flushes = 0
         self.qualified_name_resolutions = 0
@@ -77,6 +78,9 @@ class FakeGraph:
 
     def get_all_ingested_files_sync(self, repo_path: str) -> dict[str, str]:
         return dict(self.hashes.get(repo_path, {}))
+
+    def get_all_ingested_file_languages_sync(self, repo_path: str) -> dict[str, str]:
+        return dict(self.languages.get(repo_path, {}))
 
     def get_file_paths_for_repo_sync(self, repo_path: str) -> list[str]:
         return sorted(
@@ -199,6 +203,7 @@ class FakeGraph:
 
     def delete_ingested_file_sync(self, repo_path: str, rel_path: str) -> int:
         self.hashes.setdefault(repo_path, {}).pop(rel_path, None)
+        self.languages.setdefault(repo_path, {}).pop(rel_path, None)
         return self.remove_file_graph_and_vector_sync(repo_path, rel_path)
 
     def remove_file_graph_and_vector_sync(self, repo_path: str, rel_path: str) -> int:
@@ -217,8 +222,10 @@ class FakeGraph:
         self, repo_path: str, rel_paths: list[str]
     ) -> int:
         records = self.hashes.setdefault(repo_path, {})
+        langs = self.languages.setdefault(repo_path, {})
         for rel_path in rel_paths:
             records.pop(rel_path, None)
+            langs.pop(rel_path, None)
         return len(rel_paths)
 
     def acknowledge_ingested_files_batch_sync(
@@ -226,11 +233,17 @@ class FakeGraph:
     ) -> None:
         self._fail("hash")
         committed = [
-            (str(file["repo_path"]), str(file["rel_path"]), str(file["content_hash"]))
+            (
+                str(file["repo_path"]),
+                str(file["rel_path"]),
+                str(file["content_hash"]),
+                str(file.get("language", "unknown")),
+            )
             for file in files
         ]
-        for repo_path, rel_path, content_hash in committed:
+        for repo_path, rel_path, content_hash, language in committed:
             self.hashes.setdefault(repo_path, {})[rel_path] = content_hash
+            self.languages.setdefault(repo_path, {})[rel_path] = language
 
     def delete_repo_sync(self, repo_path: str) -> object:
         for rel_path in list(self.hashes.get(repo_path, {})):

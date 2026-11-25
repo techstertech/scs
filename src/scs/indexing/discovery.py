@@ -128,8 +128,15 @@ _EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".swift": "swift",
     ".ts": "typescript",
     ".tsx": "tsx",
+    ".mts": "typescript",
+    ".cts": "typescript",
     ".js": "javascript",
     ".jsx": "jsx",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".mjsx": "jsx",
+    ".es6": "javascript",
+    ".jsm": "javascript",
     ".rs": "rust",
     ".ex": "elixir",
     ".exs": "elixir",
@@ -137,6 +144,7 @@ _EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".bash": "bash",
     ".css": "css",
     ".go": "go",
+    ".java": "java",
 }
 
 
@@ -304,8 +312,9 @@ def _language_for_candidate(
 ) -> str | None:
     """Return a parser language or the safe plain-text fallback discriminator."""
 
-    if file_path.suffix in extensions:
-        return _EXTENSION_TO_LANGUAGE.get(file_path.suffix, "unknown")
+    suffix = file_path.suffix.lower()
+    if suffix in extensions:
+        return _EXTENSION_TO_LANGUAGE.get(suffix, "unknown")
     if policy.text_fallback and _is_text_file(file_path, policy.text_sample_bytes):
         return "text"
     return None

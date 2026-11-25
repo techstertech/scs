@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::{Mutex, MutexGuard};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use scs_core::error::{SCSError, SCSResult};
 use scs_core::models::{Edge, GraphRagResult, Node, Repo, SearchResult, TraversalResult};
@@ -725,7 +726,7 @@ impl KnowledgeGraph {
         if records.is_empty() {
             return Ok(0);
         }
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = utc_now_rfc3339();
         let catalog_records = records
             .iter()
             .map(|record| {
@@ -756,6 +757,18 @@ impl KnowledgeGraph {
             .into_iter()
             .filter(|r| r.repo_path == repo_path)
             .map(|r| (r.rel_path, r.content_hash))
+            .collect())
+    }
+
+    pub fn get_all_ingested_file_languages(
+        &self,
+        repo_path: &str,
+    ) -> SCSResult<HashMap<String, String>> {
+        Ok(self
+            .ingestion_records()?
+            .into_iter()
+            .filter(|r| r.repo_path == repo_path)
+            .map(|r| (r.rel_path, r.language))
             .collect())
     }
 
@@ -1270,6 +1283,10 @@ mod tests {
             graph.get_ingested_file_hash("/repo", "src/lib.rs").unwrap(),
             Some("digest".to_string())
         );
+        assert_eq!(
+            graph.get_all_ingested_file_languages("/repo").unwrap(),
+            HashMap::from([("src/lib.rs".to_string(), "rust".to_string())])
+        );
     }
 
     #[test]
@@ -1329,4 +1346,51 @@ mod tests {
         assert!(graph.get_all_ingested_files("/repo").unwrap().is_empty());
         assert!(!graph.get_ingestion_stats().unwrap().contains_key("/repo"));
     }
+
+    #[test]
+    fn utc_rfc3339_formatting_matches_chronological_timestamps() {
+        assert_eq!(
+            format_unix_timestamp_rfc3339(0, 0),
+            "1970-01-01T00:00:00.000000000Z"
+        );
+        assert_eq!(
+            format_unix_timestamp_rfc3339(1_709_210_096, 789),
+            "2024-02-29T12:34:56.000000789Z"
+        );
+        assert_eq!(
+            format_unix_timestamp_rfc3339(1_767_225_599, 999_999_999),
+            "2025-12-31T23:59:59.999999999Z"
+        );
+        let now = utc_now_rfc3339();
+        assert_eq!(now.len(), 30);
+        assert!(now.ends_with('Z'));
+    }
+}
+
+fn utc_now_rfc3339() -> String {
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    format_unix_timestamp_rfc3339(elapsed.as_secs(), elapsed.subsec_nanos())
+}
+
+fn format_unix_timestamp_rfc3339(secs: u64, nanos: u32) -> String {
+    let days = (secs / 86_400) as i64;
+    let secs_of_day = secs % 86_400;
+    let hour = secs_of_day / 3_600;
+    let minute = (secs_of_day % 3_600) / 60;
+    let second = secs_of_day % 60;
+
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if month <= 2 { y + 1 } else { y };
+
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{nanos:09}Z")
 }

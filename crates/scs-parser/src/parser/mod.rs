@@ -15,6 +15,7 @@ pub mod bash;
 pub mod css;
 pub mod elixir;
 pub mod go;
+pub mod java;
 pub mod python;
 pub mod registry;
 pub mod rust;
@@ -97,6 +98,18 @@ pub fn count_complexity(node: &Node, source: &[u8], language: &str) -> u32 {
             "expression_case",
             "type_case",
             "communication_case",
+        ]
+        .into_iter()
+        .collect(),
+
+        "java" => [
+            "if_statement",
+            "for_statement",
+            "enhanced_for_statement",
+            "while_statement",
+            "do_statement",
+            "catch_clause",
+            "ternary_expression",
         ]
         .into_iter()
         .collect(),
@@ -196,6 +209,25 @@ pub fn count_complexity(node: &Node, source: &[u8], language: &str) -> u32 {
                             .unwrap_or("");
                     if text == "&&" || text == "||" {
                         count += 1;
+                    }
+                }
+            }
+            "java" => {
+                if n.kind() == "switch_label" {
+                    let text =
+                        std::str::from_utf8(&source[n.start_byte()..n.end_byte()]).unwrap_or("");
+                    if !text.trim_start().starts_with("default") {
+                        count += 1;
+                    }
+                }
+                if n.kind() == "binary_expression" {
+                    if let Some(op) = n.child_by_field_name("operator") {
+                        let text =
+                            std::str::from_utf8(&source[op.start_byte()..op.end_byte()])
+                                .unwrap_or("");
+                        if text == "&&" || text == "||" {
+                            count += 1;
+                        }
                     }
                 }
             }
@@ -386,6 +418,16 @@ fn extract_callee_name(node: &Node, source: &[u8], language: &str) -> Option<Str
                 _ => None,
             }
         }
+        "java" => match node.kind() {
+            "method_invocation" => node
+                .child_by_field_name("name")
+                .map(|name| text_of(&name).to_string()),
+            "object_creation_expression" => node
+                .child_by_field_name("type")
+                .and_then(|ty| java::normalize_java_type_name(ty, source))
+                .map(|ty| ty.rsplit('.').next().unwrap_or(&ty).to_string()),
+            _ => None,
+        },
         "swift" => {
             // Swift `call_expression`: first child is the callee.
             let callee = node.child(0)?;
@@ -456,6 +498,7 @@ pub fn extract_calls(
         "typescript" | "javascript" | "tsx" | "jsx" => &["call_expression", "new_expression"],
         "rust" => &["call_expression"],
         "go" => &["call_expression"],
+        "java" => &["method_invocation", "object_creation_expression"],
         "swift" => &["call_expression"],
         "elixir" => &["call"],
         _ => return HashSet::new(),

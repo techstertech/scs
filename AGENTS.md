@@ -21,8 +21,9 @@ and the agent-facing MCP endpoint.
 
 - `src/scs/` — typed Python service, indexing orchestration, SCSWire, MCP, LSP,
   providers, CLI, and lifecycle management.
-- `crates/` — Rust code-only types, tree-sitter parsers, the SCS-to-TSG storage
-  adapter, and `_scs_native` PyO3 bindings.
+- `crates/` — Rust workspace crates including the in-tree `tsg` storage engine,
+  code-only types, tree-sitter parsers, the SCS-to-TSG adapter, and
+  `_scs_native` PyO3 bindings.
 - `tests/contract/`, `tests/integration/`, `tests/isolation/` — public boundary
   and independence gates.
 

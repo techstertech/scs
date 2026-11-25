@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import posixpath
 from collections.abc import Callable, Coroutine, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -32,6 +33,22 @@ PARSE_WORKERS = 4
 EMBED_BATCH_SIZE = 128
 INGESTION_BATCH_MAX_FILES = 32
 INGESTION_BATCH_MAX_ENTITIES = 512
+_JS_TS_LANGUAGES: frozenset[str] = frozenset(
+    {"javascript", "typescript", "jsx", "tsx"}
+)
+_JS_TS_SUFFIXES: tuple[str, ...] = (
+    ".ts",
+    ".tsx",
+    ".mts",
+    ".cts",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+    ".mjsx",
+    ".es6",
+    ".jsm",
+)
 T = TypeVar("T")
 
 
@@ -45,6 +62,7 @@ class GraphStore(Protocol):
     def get_or_create_repo_sync(self, path: str) -> int: ...
     def resolve_repo_id_sync(self, path: str) -> int | None: ...
     def get_all_ingested_files_sync(self, repo_path: str) -> dict[str, str]: ...
+    def get_all_ingested_file_languages_sync(self, repo_path: str) -> dict[str, str]: ...
     def get_file_paths_for_repo_sync(self, repo_path: str) -> list[str]: ...
     def get_node_ids_for_file_sync(
         self, repo_path: str, rel_path: str
@@ -171,6 +189,46 @@ def _node_id(
 
 def _file_record_id(repo_path: str, rel_path: str) -> str:
     return hashlib.sha256(f"file:{repo_path}:{rel_path}".encode()).hexdigest()[:32]
+
+
+def _resolve_js_ts_import_target(
+    rel_path: str,
+    specifier: str,
+    resolve: Callable[[str], str | None],
+) -> str | None:
+    """Resolve a relative JS/TS module or asset specifier against indexed nodes."""
+
+    cleaned = specifier.split("?", 1)[0].split("#", 1)[0]
+    if not (
+        cleaned in {".", ".."}
+        or cleaned.startswith("./")
+        or cleaned.startswith("../")
+    ):
+        return None
+    normalized = posixpath.normpath(posixpath.join(posixpath.dirname(rel_path), cleaned))
+    if normalized == ".." or normalized.startswith("../") or normalized.startswith("/"):
+        return None
+
+    lower_normalized = normalized.lower()
+    matched_suffix = next(
+        (suffix for suffix in _JS_TS_SUFFIXES if lower_normalized.endswith(suffix)),
+        None,
+    )
+    candidates: list[str]
+    if matched_suffix is not None:
+        stem = normalized[: -len(matched_suffix)]
+        candidates = [stem.replace("/", "."), normalized]
+    elif normalized == ".":
+        candidates = ["index"]
+    else:
+        dotted = normalized.replace("/", ".")
+        candidates = [normalized, dotted, f"{dotted}.index"]
+
+    for candidate in dict.fromkeys(candidates):
+        target = resolve(candidate)
+        if target is not None:
+            return target
+    return None
 
 
 class IngestionPipeline:
@@ -357,6 +415,7 @@ class IngestionPipeline:
         result = IngestionResult(files_discovered=len(entries))
         repo_id = self._graph.get_or_create_repo_sync(repo_path)
         hashes = self._graph.get_all_ingested_files_sync(repo_path)
+        languages = self._graph.get_all_ingested_file_languages_sync(repo_path)
         missing_embedding_paths: set[str] = (
             self._graph.get_file_paths_with_missing_embeddings_sync(repo_id=repo_id)
             if self._embeddings is not None
@@ -367,6 +426,10 @@ class IngestionPipeline:
             for entry in entries
             if force
             or hashes.get(entry.rel_path) != entry.content_hash
+            or (
+                entry.rel_path in languages
+                and languages[entry.rel_path] != entry.language
+            )
             or entry.rel_path in missing_embedding_paths
         ]
         result.files_changed = len(changed)
@@ -668,6 +731,14 @@ class IngestionPipeline:
                     # import to an existing repo-scoped node without changing
                     # stored qualified names or inventing external targets.
                     target = resolve(f"src.{edge.target_qualified_name}")
+                elif (
+                    target is None
+                    and item.entry.language in _JS_TS_LANGUAGES
+                    and edge.relationship is RelationshipType.IMPORTS
+                ):
+                    target = _resolve_js_ts_import_target(
+                        item.entry.rel_path, edge.target_qualified_name, resolve
+                    )
                 key = (source or "", target or "", edge.relationship.value)
                 if source and target and key not in seen:
                     seen.add(key)

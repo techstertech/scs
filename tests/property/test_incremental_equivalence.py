@@ -32,6 +32,7 @@ class Graph:
         self.nodes = {}
         self.edges = []
         self.hashes = {}
+        self.languages = {}
 
     def get_or_create_repo_sync(self, path):
         return self.repos.setdefault(path, 1)
@@ -44,6 +45,9 @@ class Graph:
 
     def get_all_ingested_files_sync(self, path):
         return dict(self.hashes.get(path, {}))
+
+    def get_all_ingested_file_languages_sync(self, path):
+        return dict(self.languages.get(path, {}))
 
     def get_file_paths_for_repo_sync(self, path):
         return sorted(self.hashes.get(path, {}))
@@ -115,21 +119,26 @@ class Graph:
     def delete_ingestion_records_batch_sync(self, path, rel_paths):
         for rel in rel_paths:
             self.hashes.setdefault(path, {}).pop(rel, None)
+            self.languages.setdefault(path, {}).pop(rel, None)
         return len(rel_paths)
 
     def acknowledge_ingested_files_batch_sync(self, records):
         for record in records:
             self.hashes.setdefault(record["repo_path"], {})[record["rel_path"]] = record["content_hash"]
+            self.languages.setdefault(record["repo_path"], {})[record["rel_path"]] = record["language"]
 
     def delete_ingested_file_sync(self, path, rel):
         self.hashes.setdefault(path, {}).pop(rel, None)
+        self.languages.setdefault(path, {}).pop(rel, None)
         return self.remove_file_graph_and_vector_sync(path, rel)
 
     def delete_ingestion_record_sync(self, path, rel):
+        self.languages.setdefault(path, {}).pop(rel, None)
         return self.hashes.setdefault(path, {}).pop(rel, None) is not None
 
     def upsert_ingested_file_sync(self, **kwargs):
         self.hashes.setdefault(kwargs["repo_path"], {})[kwargs["rel_path"]] = kwargs["content_hash"]
+        self.languages.setdefault(kwargs["repo_path"], {})[kwargs["rel_path"]] = kwargs["language"]
 
 
 identifier = st.text(alphabet="abcdefghijklmnopqrstuvwxyz", min_size=1, max_size=8).filter(str.isidentifier)

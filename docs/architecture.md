@@ -1,8 +1,8 @@
 # Architecture
 
 SCS owns source parsing, indexing, query orchestration, its local daemon, and
-its CLI and MCP contracts. [TSG](https://github.com/leonardoventurini/tsg) is
-its durable graph and embedding engine.
+its CLI and MCP contracts. Its durable graph and embedding engine, TSG, lives
+in-tree at `crates/tsg`.
 
 A new SCS installation starts with an empty index. SCS does not migrate,
 inspect, or recreate data from other products.
@@ -11,13 +11,13 @@ inspect, or recreate data from other products.
 
 The Rust `scs-store` crate maps SCS repository scopes, typed code nodes and
 relationships, ingestion checkpoints, metadata filters, traversal, and semantic
-search onto generic TSG primitives. The Python, SCSWire, MCP, and CLI contracts
-remain SCS-owned without coupling TSG to code intelligence.
+search onto generic `tsg` primitives. The Python, SCSWire, MCP, and CLI
+contracts remain SCS-owned without coupling `crates/tsg` to code intelligence.
 
-TSG is pinned to the immutable `v0.2.5` Git tag and its resolved commit in
-`Cargo.lock`; building SCS does not require a sibling TSG checkout. TSG keeps
-canonical graph, catalog, and embedding state transactionally in SQLite and
-treats its vector index as a rebuildable accelerator.
+Because `crates/tsg` is part of the SCS Cargo workspace, building SCS requires
+no external TSG repository checkout. TSG keeps canonical graph, catalog, and
+embedding state transactionally in SQLite and treats its vector index as a
+rebuildable accelerator.
 
 An index created by the former SCS storage engine is not migrated in place.
 When that incompatible database is first opened, SCS moves the database, WAL,

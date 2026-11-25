@@ -32,7 +32,16 @@ from scs.services.impact import ChangedRange, changed_symbol_impact
 GraphForRepository = Callable[[str], NativeGraph | None]
 BindingForRepository = Callable[[str], tuple[str, str] | None]
 
-TEST_PATH_MARKERS = ("tests/", "test/", "test_", "_test.", ".test.", "Tests.swift")
+TEST_PATH_MARKERS = (
+    "tests/",
+    "test/",
+    "test_",
+    "_test.",
+    ".test.",
+    "Tests.swift",
+    "Test.java",
+    "Tests.java",
+)
 DEPENDENCY_RELATIONSHIPS = frozenset(
     {
         RelationshipType.CALLS,

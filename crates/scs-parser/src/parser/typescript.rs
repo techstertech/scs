@@ -12,6 +12,11 @@ use scs_core::node_types::NodeType;
 
 use super::{count_complexity, extract_calls, LanguageParser, ParsedEdge, ParsedEntity};
 
+/// File extensions handled by [`TypeScriptParser`].
+pub const JS_TS_EXTENSIONS: &[&str] = &[
+    ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".mjsx", ".es6", ".jsm",
+];
+
 /// Built-in names to exclude from call-graph edges (TypeScript/JavaScript).
 const TS_BUILTIN_CALLS: &[&str] = &[
     "console",
@@ -131,10 +136,86 @@ fn get_doc_comment(node: &Node, source: &[u8]) -> String {
     String::new()
 }
 
+/// Extract a JSDoc comment (`/** ... */`) preceding a declaration node,
+/// falling back to an enclosing `export_statement` or `expression_statement`.
+fn get_doc_comment_for_declaration(node: &Node, source: &[u8]) -> String {
+    let direct = get_doc_comment(node, source);
+    if !direct.is_empty() {
+        return direct;
+    }
+    if let Some(parent) = node.parent() {
+        if matches!(parent.kind(), "export_statement" | "expression_statement") {
+            return get_doc_comment(&parent, source);
+        }
+    }
+    String::new()
+}
+
+fn extract_string_literal(node: &Node, source: &[u8]) -> Option<String> {
+    if node.kind() != "string" {
+        return None;
+    }
+    let raw = get_text(node, source).trim();
+    let unwrapped = raw
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .or_else(|| raw.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+        .unwrap_or(raw);
+    if unwrapped.is_empty() {
+        None
+    } else {
+        Some(unwrapped.to_string())
+    }
+}
+
+fn extract_module_import_call(node: &Node, source: &[u8]) -> Option<String> {
+    if node.kind() != "call_expression" {
+        return None;
+    }
+    let func = node.child_by_field_name("function")?;
+    let is_require = func.kind() == "identifier" && get_text(&func, source) == "require";
+    let is_dynamic_import = func.kind() == "import";
+    if !is_require && !is_dynamic_import {
+        return None;
+    }
+    let args = node.child_by_field_name("arguments")?;
+    let first_arg = args.named_child(0)?;
+    extract_string_literal(&first_arg, source)
+}
+
+fn commonjs_export_target(left: Node, source: &[u8]) -> Option<Option<String>> {
+    if left.kind() != "member_expression" {
+        return None;
+    }
+    let obj = left.child_by_field_name("object")?;
+    let prop = left.child_by_field_name("property")?;
+    let prop_name = get_text(&prop, source);
+    if obj.kind() == "identifier" {
+        let obj_name = get_text(&obj, source);
+        if obj_name == "module" && prop_name == "exports" {
+            return Some(None);
+        }
+        if obj_name == "exports" {
+            return Some(Some(prop_name.to_string()));
+        }
+    } else if obj.kind() == "member_expression" {
+        let root = obj.child_by_field_name("object")?;
+        let mid = obj.child_by_field_name("property")?;
+        if root.kind() == "identifier"
+            && get_text(&root, source) == "module"
+            && get_text(&mid, source) == "exports"
+        {
+            return Some(Some(prop_name.to_string()));
+        }
+    }
+    None
+}
+
 /// Parse TypeScript/JavaScript files using tree-sitter.
 ///
 /// Handles classes, functions, arrow functions, interfaces, type
-/// aliases, import statements, and const/let/var declarations.
+/// aliases, import/export statements, CommonJS `require`/`exports`,
+/// and const/let/var declarations.
 /// TSX/JSX are parsed using the TSX grammar.
 pub struct TypeScriptParser {
     language_name: String,
@@ -163,6 +244,85 @@ impl TypeScriptParser {
         parser
     }
 
+    fn emit_import(
+        &self,
+        node: Node,
+        import_path: &str,
+        module_name: &str,
+        entities: &mut Vec<ParsedEntity>,
+        edges: &mut Vec<ParsedEdge>,
+    ) {
+        let qualified = format!("{module_name}.import.{import_path}");
+        entities.push(ParsedEntity {
+            kind: NodeType::Import,
+            name: import_path.to_string(),
+            qualified_name: qualified.clone(),
+            start_line: node.start_position().row,
+            end_line: node.end_position().row,
+            imports: vec![import_path.to_string()],
+            signature: String::new(),
+            docstring: String::new(),
+            raw_text: String::new(),
+            parent_qualified_name: Some(module_name.to_string()),
+            bases: Vec::new(),
+            cyclomatic_complexity: None,
+        });
+        // CONTAINS edge from file → import node so it isn't an orphan.
+        edges.push(ParsedEdge::new(
+            module_name.to_string(),
+            qualified,
+            "contains",
+        ));
+        edges.push(ParsedEdge::new(
+            module_name.to_string(),
+            import_path.to_string(),
+            "imports",
+        ));
+    }
+
+    fn extract_module_imports_in_subtree(
+        &self,
+        root: Node,
+        source: &[u8],
+        module_name: &str,
+        entities: &mut Vec<ParsedEntity>,
+        edges: &mut Vec<ParsedEdge>,
+    ) {
+        let mut cursor = root.walk();
+        let mut reached_root = false;
+        loop {
+            let n = cursor.node();
+            if let Some(import_path) = extract_module_import_call(&n, source) {
+                self.emit_import(n, &import_path, module_name, entities, edges);
+            }
+
+            if cursor.node() == root {
+                if !cursor.goto_first_child() {
+                    break;
+                }
+                continue;
+            }
+            if cursor.goto_first_child() {
+                continue;
+            }
+            if cursor.goto_next_sibling() {
+                continue;
+            }
+            loop {
+                if !cursor.goto_parent() || cursor.node() == root {
+                    reached_root = true;
+                    break;
+                }
+                if cursor.goto_next_sibling() {
+                    break;
+                }
+            }
+            if reached_root {
+                break;
+            }
+        }
+    }
+
     fn walk(
         &self,
         node: Node,
@@ -174,44 +334,85 @@ impl TypeScriptParser {
     ) {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            match child.kind() {
-                "class_declaration" => {
-                    self.handle_class(child, source, module_name, entities, edges, scope_stack);
+            self.walk_node(child, source, module_name, entities, edges, scope_stack);
+        }
+    }
+
+    fn walk_node(
+        &self,
+        child: Node,
+        source: &[u8],
+        module_name: &str,
+        entities: &mut Vec<ParsedEntity>,
+        edges: &mut Vec<ParsedEdge>,
+        scope_stack: &[String],
+    ) {
+        match child.kind() {
+            "class_declaration" => {
+                self.handle_class(child, source, module_name, entities, edges, scope_stack);
+            }
+            "function_declaration" | "generator_function_declaration" => {
+                self.handle_function(child, source, module_name, entities, edges, scope_stack);
+            }
+            "interface_declaration" | "type_alias_declaration" => {
+                self.handle_type_declaration(
+                    child,
+                    source,
+                    module_name,
+                    entities,
+                    edges,
+                    scope_stack,
+                );
+            }
+            "import_statement" | "import_declaration" => {
+                self.handle_import(child, source, module_name, entities, edges);
+            }
+            "lexical_declaration" | "variable_declaration" => {
+                self.handle_variable(child, source, module_name, entities, edges, scope_stack);
+            }
+            "assignment_expression" if scope_stack.len() == 1 => {
+                self.handle_assignment(child, source, module_name, entities, edges, scope_stack);
+            }
+            "call_expression" => {
+                if let Some(import_path) = extract_module_import_call(&child, source) {
+                    self.emit_import(child, &import_path, module_name, entities, edges);
+                } else if let Some(func) = child.child_by_field_name("function") {
+                    self.walk_node(func, source, module_name, entities, edges, scope_stack);
                 }
-                "function_declaration" => {
-                    self.handle_function(child, source, module_name, entities, edges, scope_stack);
+                if let Some(args) = child.child_by_field_name("arguments") {
+                    self.walk(args, source, module_name, entities, edges, scope_stack);
                 }
-                "interface_declaration" | "type_alias_declaration" => {
-                    self.handle_type_declaration(
-                        child,
+            }
+            "arrow_function" | "function_expression" | "generator_function" => {
+                if let Some(body) = child.child_by_field_name("body") {
+                    self.extract_module_imports_in_subtree(
+                        body,
                         source,
                         module_name,
                         entities,
                         edges,
-                        scope_stack,
                     );
                 }
-                "import_statement" | "import_declaration" => {
-                    self.handle_import(child, source, module_name, entities, edges);
-                }
-                "lexical_declaration" | "variable_declaration" => {
-                    self.handle_variable(child, source, module_name, entities, edges, scope_stack);
-                }
-                "export_statement" => {
-                    // Unwrap export and process the inner declaration.
-                    self.walk(child, source, module_name, entities, edges, scope_stack);
-                }
-                "method_definition" | "public_field_definition" => {
-                    self.handle_method(child, source, module_name, entities, edges, scope_stack);
-                }
-                _ => {
-                    // Don't recurse into function bodies.
-                    if child.child_count() > 0
-                        && child.kind() != "statement_block"
-                        && child.kind() != "function_body"
-                    {
-                        self.walk(child, source, module_name, entities, edges, scope_stack);
+            }
+            "export_statement" => {
+                if let Some(src) = child.child_by_field_name("source") {
+                    if let Some(import_path) = extract_string_literal(&src, source) {
+                        self.emit_import(child, &import_path, module_name, entities, edges);
                     }
+                }
+                // Unwrap export and process the inner declaration.
+                self.walk(child, source, module_name, entities, edges, scope_stack);
+            }
+            "method_definition" | "public_field_definition" => {
+                self.handle_method(child, source, module_name, entities, edges, scope_stack);
+            }
+            _ => {
+                // Don't recurse into function bodies.
+                if child.child_count() > 0
+                    && child.kind() != "statement_block"
+                    && child.kind() != "function_body"
+                {
+                    self.walk(child, source, module_name, entities, edges, scope_stack);
                 }
             }
         }
@@ -268,7 +469,7 @@ impl TypeScriptParser {
             parent_qualified_name: Some(scope_stack.join(".")),
             bases: bases.clone(),
             signature: String::new(),
-            docstring: get_doc_comment(&node, source),
+            docstring: get_doc_comment_for_declaration(&node, source),
             imports: Vec::new(),
             cyclomatic_complexity: None,
         });
@@ -291,11 +492,71 @@ impl TypeScriptParser {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn handle_function_value(
+        &self,
+        name: String,
+        fn_node: Node,
+        doc_node: Node,
+        source: &[u8],
+        module_name: &str,
+        entities: &mut Vec<ParsedEntity>,
+        edges: &mut Vec<ParsedEdge>,
+        scope_stack: &[String],
+    ) {
+        if name.is_empty() {
+            return;
+        }
+        let qualified = format!("{}.{name}", scope_stack.join("."));
+        let kind = if scope_stack.len() > 1 {
+            NodeType::Method
+        } else {
+            NodeType::Function
+        };
+        let params = fn_node
+            .child_by_field_name("parameters")
+            .or_else(|| fn_node.child_by_field_name("parameter"))
+            .map(|p| get_text(&p, source).to_string())
+            .unwrap_or_default();
+        let raw = get_text(&fn_node, source);
+        let complexity = count_complexity(&fn_node, source, &self.language_name);
+
+        entities.push(ParsedEntity {
+            kind,
+            name,
+            qualified_name: qualified.clone(),
+            start_line: fn_node.start_position().row,
+            end_line: fn_node.end_position().row,
+            signature: params,
+            raw_text: super::truncate_str(raw, super::RAW_TEXT_LIMIT).to_string(),
+            parent_qualified_name: Some(scope_stack.join(".")),
+            docstring: get_doc_comment_for_declaration(&doc_node, source),
+            bases: Vec::new(),
+            imports: Vec::new(),
+            cyclomatic_complexity: Some(complexity),
+        });
+
+        edges.push(ParsedEdge::new(
+            scope_stack.join("."),
+            qualified.clone(),
+            "contains",
+        ));
+
+        if let Some(body) = fn_node.child_by_field_name("body") {
+            let blocklist: HashSet<&str> = TS_BUILTIN_CALLS.iter().copied().collect();
+            let callees = extract_calls(&body, source, &self.language_name, &blocklist);
+            for callee in callees {
+                edges.push(ParsedEdge::new(qualified.clone(), callee, "calls"));
+            }
+            self.extract_module_imports_in_subtree(body, source, module_name, entities, edges);
+        }
+    }
+
     fn handle_function(
         &self,
         node: Node,
         source: &[u8],
-        _module_name: &str,
+        module_name: &str,
         entities: &mut Vec<ParsedEntity>,
         edges: &mut Vec<ParsedEdge>,
         scope_stack: &[String],
@@ -335,7 +596,7 @@ impl TypeScriptParser {
             signature: params,
             raw_text: super::truncate_str(raw, super::RAW_TEXT_LIMIT).to_string(),
             parent_qualified_name: Some(scope_stack.join(".")),
-            docstring: get_doc_comment(&node, source),
+            docstring: get_doc_comment_for_declaration(&node, source),
             bases: Vec::new(),
             imports: Vec::new(),
             cyclomatic_complexity: Some(complexity),
@@ -347,13 +608,14 @@ impl TypeScriptParser {
             "contains",
         ));
 
-        // CALLS edges from this function to callees in its body.
+        // CALLS edges from this function to callees in its body, plus lazy imports.
         if let Some(body) = find_child_by_kind(&node, "statement_block") {
             let blocklist: HashSet<&str> = TS_BUILTIN_CALLS.iter().copied().collect();
             let callees = extract_calls(&body, source, &self.language_name, &blocklist);
             for callee in callees {
                 edges.push(ParsedEdge::new(qualified.clone(), callee, "calls"));
             }
+            self.extract_module_imports_in_subtree(body, source, module_name, entities, edges);
         }
     }
 
@@ -361,7 +623,7 @@ impl TypeScriptParser {
         &self,
         node: Node,
         source: &[u8],
-        _module_name: &str,
+        module_name: &str,
         entities: &mut Vec<ParsedEntity>,
         edges: &mut Vec<ParsedEdge>,
         scope_stack: &[String],
@@ -376,6 +638,34 @@ impl TypeScriptParser {
         }
         if name.is_empty() {
             return;
+        }
+
+        if node.kind() == "public_field_definition" {
+            if let Some(value) = node.child_by_field_name("value") {
+                if matches!(
+                    value.kind(),
+                    "arrow_function" | "function_expression" | "generator_function"
+                ) {
+                    self.handle_function_value(
+                        name,
+                        value,
+                        node,
+                        source,
+                        module_name,
+                        entities,
+                        edges,
+                        scope_stack,
+                    );
+                    return;
+                }
+                self.extract_module_imports_in_subtree(
+                    value,
+                    source,
+                    module_name,
+                    entities,
+                    edges,
+                );
+            }
         }
 
         let qualified = format!("{}.{name}", scope_stack.join("."));
@@ -394,7 +684,7 @@ impl TypeScriptParser {
             signature: params,
             raw_text: super::truncate_str(raw, super::RAW_TEXT_LIMIT).to_string(),
             parent_qualified_name: Some(scope_stack.join(".")),
-            docstring: get_doc_comment(&node, source),
+            docstring: get_doc_comment_for_declaration(&node, source),
             bases: Vec::new(),
             imports: Vec::new(),
             cyclomatic_complexity: Some(complexity),
@@ -406,13 +696,14 @@ impl TypeScriptParser {
             "contains",
         ));
 
-        // CALLS edges from this method to callees in its body.
+        // CALLS edges from this method to callees in its body, plus lazy imports.
         if let Some(body) = find_child_by_kind(&node, "statement_block") {
             let blocklist: HashSet<&str> = TS_BUILTIN_CALLS.iter().copied().collect();
             let callees = extract_calls(&body, source, &self.language_name, &blocklist);
             for callee in callees {
                 edges.push(ParsedEdge::new(qualified.clone(), callee, "calls"));
             }
+            self.extract_module_imports_in_subtree(body, source, module_name, entities, edges);
         }
     }
 
@@ -456,7 +747,7 @@ impl TypeScriptParser {
             raw_text: super::truncate_str(raw, super::RAW_TEXT_SMALL_LIMIT).to_string(),
             parent_qualified_name: Some(scope_stack.join(".")),
             signature: String::new(),
-            docstring: get_doc_comment(&node, source),
+            docstring: get_doc_comment_for_declaration(&node, source),
             bases: Vec::new(),
             imports: Vec::new(),
             cyclomatic_complexity: None,
@@ -477,40 +768,22 @@ impl TypeScriptParser {
         entities: &mut Vec<ParsedEntity>,
         edges: &mut Vec<ParsedEdge>,
     ) {
-        // Extract the module path from the import string literal.
+        // Extract module specifier from ESM `source` or TS `import x = require(...)`.
+        let source_node = node.child_by_field_name("source").or_else(|| {
+            find_child_by_kind(&node, "import_require_clause")
+                .and_then(|clause| clause.child_by_field_name("source"))
+        });
+        if let Some(src) = source_node {
+            if let Some(import_path) = extract_string_literal(&src, source) {
+                self.emit_import(node, &import_path, module_name, entities, edges);
+                return;
+            }
+        }
+
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            if child.kind() == "string" {
-                let import_path = get_text(&child, source)
-                    .trim_matches('"')
-                    .trim_matches('\'')
-                    .to_string();
-                let qualified = format!("{module_name}.import.{import_path}");
-                entities.push(ParsedEntity {
-                    kind: NodeType::Import,
-                    name: import_path.clone(),
-                    qualified_name: qualified.clone(),
-                    start_line: node.start_position().row,
-                    end_line: node.end_position().row,
-                    imports: vec![import_path.clone()],
-                    signature: String::new(),
-                    docstring: String::new(),
-                    raw_text: String::new(),
-                    parent_qualified_name: Some(module_name.to_string()),
-                    bases: Vec::new(),
-                    cyclomatic_complexity: None,
-                });
-                // CONTAINS edge from file → import node so it isn't an orphan.
-                edges.push(ParsedEdge::new(
-                    module_name.to_string(),
-                    qualified,
-                    "contains",
-                ));
-                edges.push(ParsedEdge::new(
-                    module_name.to_string(),
-                    import_path,
-                    "imports",
-                ));
+            if let Some(import_path) = extract_string_literal(&child, source) {
+                self.emit_import(node, &import_path, module_name, entities, edges);
                 break;
             }
         }
@@ -521,7 +794,7 @@ impl TypeScriptParser {
         &self,
         node: Node,
         source: &[u8],
-        _module_name: &str,
+        module_name: &str,
         entities: &mut Vec<ParsedEntity>,
         edges: &mut Vec<ParsedEdge>,
         scope_stack: &[String],
@@ -533,51 +806,226 @@ impl TypeScriptParser {
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            if child.kind() == "variable_declarator" {
-                let mut name = String::new();
-                let mut sub_cursor = child.walk();
-                for sub in child.children(&mut sub_cursor) {
-                    if sub.kind() == "identifier" {
-                        name = get_text(&sub, source).to_string();
-                        break;
+            if child.kind() != "variable_declarator" {
+                continue;
+            }
+
+            let name_node = child.child_by_field_name("name");
+            let value_node = child.child_by_field_name("value");
+            let ident_name = name_node
+                .filter(|n| n.kind() == "identifier")
+                .map(|n| get_text(&n, source).to_string())
+                .unwrap_or_default();
+
+            if let Some(val) = value_node {
+                if matches!(
+                    val.kind(),
+                    "arrow_function" | "function_expression" | "generator_function"
+                ) {
+                    if !ident_name.is_empty() {
+                        self.handle_function_value(
+                            ident_name,
+                            val,
+                            node,
+                            source,
+                            module_name,
+                            entities,
+                            edges,
+                            scope_stack,
+                        );
+                    } else {
+                        self.extract_module_imports_in_subtree(
+                            val,
+                            source,
+                            module_name,
+                            entities,
+                            edges,
+                        );
                     }
-                }
-                if name.is_empty() || name.len() < 2 {
                     continue;
                 }
 
-                let qualified = format!("{}.{name}", scope_stack.join("."));
-                let raw = get_text(&child, source);
-                let kind = if is_constant_name(&name) {
-                    NodeType::Constant
+                self.extract_module_imports_in_subtree(val, source, module_name, entities, edges);
+            }
+
+            if ident_name.len() < 2 {
+                continue;
+            }
+
+            let qualified = format!("{}.{ident_name}", scope_stack.join("."));
+            let raw = get_text(&child, source);
+            let kind = if is_constant_name(&ident_name) {
+                NodeType::Constant
+            } else {
+                NodeType::Variable
+            };
+
+            entities.push(ParsedEntity {
+                kind,
+                name: ident_name,
+                qualified_name: qualified.clone(),
+                start_line: child.start_position().row,
+                end_line: child.end_position().row,
+                signature: super::truncate_str(raw, super::RAW_TEXT_SMALL_LIMIT).to_string(),
+                raw_text: super::truncate_str(raw, super::RAW_TEXT_SMALL_LIMIT).to_string(),
+                parent_qualified_name: Some(scope_stack.join(".")),
+                docstring: String::new(),
+                bases: Vec::new(),
+                imports: Vec::new(),
+                cyclomatic_complexity: None,
+            });
+
+            // CONTAINS edge from parent scope — connects the
+            // variable/constant to its module so it appears in
+            // graph traversals. Without this, these nodes are
+            // orphans with zero edges (audit issue #5).
+            edges.push(ParsedEdge::new(
+                scope_stack.join("."),
+                qualified,
+                "contains",
+            ));
+        }
+    }
+
+    fn handle_assignment(
+        &self,
+        node: Node,
+        source: &[u8],
+        module_name: &str,
+        entities: &mut Vec<ParsedEntity>,
+        edges: &mut Vec<ParsedEdge>,
+        scope_stack: &[String],
+    ) {
+        let Some(left) = node.child_by_field_name("left") else {
+            return;
+        };
+        let Some(right) = node.child_by_field_name("right") else {
+            return;
+        };
+
+        match commonjs_export_target(left, source) {
+            Some(Some(prop_name)) => {
+                if matches!(
+                    right.kind(),
+                    "arrow_function" | "function_expression" | "generator_function"
+                ) {
+                    let doc_node = node.parent().unwrap_or(node);
+                    self.handle_function_value(
+                        prop_name,
+                        right,
+                        doc_node,
+                        source,
+                        module_name,
+                        entities,
+                        edges,
+                        scope_stack,
+                    );
+                    return;
+                }
+
+                if prop_name.len() >= 2 {
+                    let qualified = format!("{}.{prop_name}", scope_stack.join("."));
+                    let raw = get_text(&node, source);
+                    let kind = if is_constant_name(&prop_name) {
+                        NodeType::Constant
+                    } else {
+                        NodeType::Variable
+                    };
+                    entities.push(ParsedEntity {
+                        kind,
+                        name: prop_name,
+                        qualified_name: qualified.clone(),
+                        start_line: node.start_position().row,
+                        end_line: node.end_position().row,
+                        signature: super::truncate_str(raw, super::RAW_TEXT_SMALL_LIMIT)
+                            .to_string(),
+                        raw_text: super::truncate_str(raw, super::RAW_TEXT_SMALL_LIMIT)
+                            .to_string(),
+                        parent_qualified_name: Some(scope_stack.join(".")),
+                        docstring: String::new(),
+                        bases: Vec::new(),
+                        imports: Vec::new(),
+                        cyclomatic_complexity: None,
+                    });
+                    edges.push(ParsedEdge::new(
+                        scope_stack.join("."),
+                        qualified,
+                        "contains",
+                    ));
+                }
+
+                self.walk_node(right, source, module_name, entities, edges, scope_stack);
+            }
+            Some(None) => {
+                if right.kind() == "object" {
+                    let mut cursor = right.walk();
+                    for item in right.children(&mut cursor) {
+                        if item.kind() == "pair" {
+                            let key_name = item
+                                .child_by_field_name("key")
+                                .filter(|k| {
+                                    k.kind() == "property_identifier" || k.kind() == "identifier"
+                                })
+                                .map(|k| get_text(&k, source).to_string())
+                                .unwrap_or_default();
+                            if let Some(value) = item.child_by_field_name("value") {
+                                if !key_name.is_empty()
+                                    && matches!(
+                                        value.kind(),
+                                        "arrow_function"
+                                            | "function_expression"
+                                            | "generator_function"
+                                    )
+                                {
+                                    self.handle_function_value(
+                                        key_name,
+                                        value,
+                                        item,
+                                        source,
+                                        module_name,
+                                        entities,
+                                        edges,
+                                        scope_stack,
+                                    );
+                                    continue;
+                                }
+                            }
+                        }
+                        self.walk_node(item, source, module_name, entities, edges, scope_stack);
+                    }
+                } else if matches!(right.kind(), "function_expression" | "generator_function") {
+                    let fn_name = right
+                        .child_by_field_name("name")
+                        .filter(|n| n.kind() == "identifier")
+                        .map(|n| get_text(&n, source).to_string())
+                        .unwrap_or_default();
+                    if !fn_name.is_empty() {
+                        let doc_node = node.parent().unwrap_or(node);
+                        self.handle_function_value(
+                            fn_name,
+                            right,
+                            doc_node,
+                            source,
+                            module_name,
+                            entities,
+                            edges,
+                            scope_stack,
+                        );
+                    } else if let Some(body) = right.child_by_field_name("body") {
+                        self.extract_module_imports_in_subtree(
+                            body,
+                            source,
+                            module_name,
+                            entities,
+                            edges,
+                        );
+                    }
                 } else {
-                    NodeType::Variable
-                };
-
-                entities.push(ParsedEntity {
-                    kind,
-                    name,
-                    qualified_name: qualified.clone(),
-                    start_line: child.start_position().row,
-                    end_line: child.end_position().row,
-                    signature: super::truncate_str(raw, super::RAW_TEXT_SMALL_LIMIT).to_string(),
-                    raw_text: super::truncate_str(raw, super::RAW_TEXT_SMALL_LIMIT).to_string(),
-                    parent_qualified_name: Some(scope_stack.join(".")),
-                    docstring: String::new(),
-                    bases: Vec::new(),
-                    imports: Vec::new(),
-                    cyclomatic_complexity: None,
-                });
-
-                // CONTAINS edge from parent scope — connects the
-                // variable/constant to its module so it appears in
-                // graph traversals. Without this, these nodes are
-                // orphans with zero edges (audit issue #5).
-                edges.push(ParsedEdge::new(
-                    scope_stack.join("."),
-                    qualified,
-                    "contains",
-                ));
+                    self.walk_node(right, source, module_name, entities, edges, scope_stack);
+                }
+            }
+            None => {
+                self.walk_node(right, source, module_name, entities, edges, scope_stack);
             }
         }
     }
@@ -596,11 +1044,12 @@ impl LanguageParser for TypeScriptParser {
         let mut entities = Vec::new();
         let mut edges = Vec::new();
 
-        // Module name: strip extension and replace slashes with dots.
+        // Module name: strip extension (case-insensitive) and replace slashes with dots.
         let mut module_name = file_path.replace('/', ".");
-        for suffix in [".ts", ".tsx", ".js", ".jsx"] {
-            if let Some(stripped) = module_name.strip_suffix(suffix) {
-                module_name = stripped.to_string();
+        let lower_name = module_name.to_ascii_lowercase();
+        for suffix in JS_TS_EXTENSIONS {
+            if lower_name.ends_with(suffix) {
+                module_name.truncate(module_name.len() - suffix.len());
                 break;
             }
         }
@@ -802,5 +1251,164 @@ class Service {
             .filter(|e| e.relationship == "calls" && e.target_qualified_name == "foo")
             .collect();
         assert_eq!(foo_calls.len(), 1, "Duplicate calls should be deduplicated");
+    }
+
+    #[test]
+    fn module_name_strips_all_js_ts_variant_extensions_case_insensitively() {
+        let parser = TypeScriptParser::new("typescript");
+        let tsx_parser = TypeScriptParser::new("tsx");
+        let cases = [
+            ("src/config.cjs", "src.config", &parser),
+            ("src/entry.mjs", "src.entry", &parser),
+            ("src/types.cts", "src.types", &parser),
+            ("src/mod.mts", "src.mod", &parser),
+            ("src/view.mjsx", "src.view", &tsx_parser),
+            ("src/legacy.es6", "src.legacy", &parser),
+            ("src/module.jsm", "src.module", &parser),
+            ("src/UPPER.CJS", "src.UPPER", &parser),
+            ("types/global.d.cts", "types.global.d", &parser),
+        ];
+
+        for (file_path, expected_module, active_parser) in cases {
+            let (entities, _) = active_parser.parse("const VALUE = 1;\n", file_path);
+            let file_entity = entities
+                .iter()
+                .find(|e| e.kind == NodeType::File)
+                .expect("file entity");
+            assert_eq!(
+                file_entity.qualified_name, expected_module,
+                "for {file_path}"
+            );
+        }
+    }
+
+    #[test]
+    fn parses_commonjs_requires_dynamic_imports_reexports_and_ts_require() {
+        let parser = TypeScriptParser::new("typescript");
+        let source = r#"#!/usr/bin/env node
+import type { Config } from './types.mts';
+import legacy = require('./legacy.cts');
+const direct = require('./direct.cjs');
+const { alpha, beta } = require('./destructured.cjs');
+const prop = require('./with-prop.cjs').prop;
+require('./polyfill.cjs');
+module.exports = require('./base.cjs');
+const cfg = defineConfig({ plugins: [require('./plugin.cjs')] });
+export { helper } from './reexport.mjs';
+export * from './star.mjs';
+function loadLazy() {
+    const lazy = require('./lazy.cjs');
+    return import('./dynamic.mjs');
+}
+"#;
+        let (entities, edges) = parser.parse(source, "scripts/build.cjs");
+        let imports: Vec<&ParsedEntity> = entities
+            .iter()
+            .filter(|e| e.kind == NodeType::Import)
+            .collect();
+
+        let expected = [
+            "./types.mts",
+            "./legacy.cts",
+            "./direct.cjs",
+            "./destructured.cjs",
+            "./with-prop.cjs",
+            "./polyfill.cjs",
+            "./base.cjs",
+            "./plugin.cjs",
+            "./reexport.mjs",
+            "./star.mjs",
+            "./lazy.cjs",
+            "./dynamic.mjs",
+        ];
+
+        for target in expected {
+            let count = imports.iter().filter(|e| e.name == target).count();
+            assert_eq!(
+                count, 1,
+                "expected exactly 1 Import entity for {target}, got {count}"
+            );
+            assert!(
+                edges
+                    .iter()
+                    .any(|e| e.relationship == "imports"
+                        && e.source_qualified_name == "scripts.build"
+                        && e.target_qualified_name == target),
+                "missing imports edge for {target}"
+            );
+        }
+    }
+
+    #[test]
+    fn parses_commonjs_exports_arrow_functions_and_jsdoc() {
+        let parser = TypeScriptParser::new("typescript");
+        let source = r#"
+/** Arrow helper doc. */
+const arrowFn = (x) => runArrow(x);
+const exprFn = function namedExpr(a, b) {
+    return combineExpr(a, b);
+};
+/** Exported CJS handler. */
+exports.handle = (req) => dispatch(req);
+module.exports.check = function(val) {
+    return verifyCheck(val);
+};
+exports.DEFAULT_PORT = 8080;
+module.exports = {
+    /** Object arrow method. */
+    build: (cfg) => assemble(cfg),
+    init() {
+        bootstrap();
+    },
+    plugins: [require('./extra.cjs')],
+};
+"#;
+        let (entities, edges) = parser.parse(source, "config/app.cjs");
+
+        let arrow = entities.iter().find(|e| e.name == "arrowFn").unwrap();
+        assert_eq!(arrow.kind, NodeType::Function);
+        assert!(arrow.docstring.contains("Arrow helper doc"));
+        assert!(edges.iter().any(|e| e.relationship == "calls"
+            && e.source_qualified_name == "config.app.arrowFn"
+            && e.target_qualified_name == "runArrow"));
+
+        let expr = entities.iter().find(|e| e.name == "exprFn").unwrap();
+        assert_eq!(expr.kind, NodeType::Function);
+        assert!(edges.iter().any(|e| e.relationship == "calls"
+            && e.source_qualified_name == "config.app.exprFn"
+            && e.target_qualified_name == "combineExpr"));
+
+        let handle = entities.iter().find(|e| e.name == "handle").unwrap();
+        assert_eq!(handle.kind, NodeType::Function);
+        assert!(handle.docstring.contains("Exported CJS handler"));
+        assert!(edges.iter().any(|e| e.relationship == "calls"
+            && e.source_qualified_name == "config.app.handle"
+            && e.target_qualified_name == "dispatch"));
+
+        let check = entities.iter().find(|e| e.name == "check").unwrap();
+        assert_eq!(check.kind, NodeType::Function);
+        assert!(edges.iter().any(|e| e.relationship == "calls"
+            && e.source_qualified_name == "config.app.check"
+            && e.target_qualified_name == "verifyCheck"));
+
+        let port = entities.iter().find(|e| e.name == "DEFAULT_PORT").unwrap();
+        assert_eq!(port.kind, NodeType::Constant);
+
+        let build = entities.iter().find(|e| e.name == "build").unwrap();
+        assert_eq!(build.kind, NodeType::Function);
+        assert!(build.docstring.contains("Object arrow method"));
+        assert!(edges.iter().any(|e| e.relationship == "calls"
+            && e.source_qualified_name == "config.app.build"
+            && e.target_qualified_name == "assemble"));
+
+        let init = entities.iter().find(|e| e.name == "init").unwrap();
+        assert_eq!(init.kind, NodeType::Method);
+        assert!(edges.iter().any(|e| e.relationship == "calls"
+            && e.source_qualified_name == "config.app.init"
+            && e.target_qualified_name == "bootstrap"));
+
+        assert!(entities
+            .iter()
+            .any(|e| e.kind == NodeType::Import && e.name == "./extra.cjs"));
     }
 }

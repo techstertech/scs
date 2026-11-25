@@ -18,3 +18,4 @@ tree-sitter-elixir = { workspace = true }
 tree-sitter-bash = { workspace = true }
 tree-sitter-css = { workspace = true }
 tree-sitter-go = { workspace = true }
+tree-sitter-java = { workspace = true }

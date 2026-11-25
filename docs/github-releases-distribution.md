@@ -210,8 +210,9 @@ The workflow uses least-privilege job permissions. Only the final publish job
 receives `contents: write`, `id-token: write`, and `attestations: write`. Every
 third-party action is pinned to a full commit SHA.
 
-Both SCS and its immutable Git dependency TSG must remain publicly readable so
-clean GitHub-hosted runners and source consumers can resolve the release.
+Both SCS and its release source builds must remain self-contained (TSG lives
+in-tree under `crates/tsg`) so clean GitHub-hosted runners and source consumers
+can resolve the release without external Git dependencies.
 
 ## Manual review smoke checks
 

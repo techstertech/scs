@@ -1,0 +1,29 @@
+[package]
+name = "tsg"
+version.workspace = true
+edition = "2024"
+rust-version.workspace = true
+license.workspace = true
+description = "Transactional semantic graph storage engine"
+repository.workspace = true
+readme = "README.md"
+keywords = ["graph", "vector", "sqlite", "embeddings", "search"]
+categories = ["database-implementations", "data-structures"]
+
+[dependencies]
+fs2 = "0.4"
+rusqlite = { workspace = true, features = ["backup", "bundled"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+usearch = "2.26"
+
+[dev-dependencies]
+proptest = "1.11"
+tempfile = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"

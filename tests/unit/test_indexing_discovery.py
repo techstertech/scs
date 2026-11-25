@@ -178,6 +178,67 @@ def test_discover_labels_all_eligible_go_file_kinds(
     ]
 
 
+def test_discover_and_build_file_entry_classify_js_ts_variant_extensions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    expected_languages = {
+        "config.cjs": "javascript",
+        "module.mjs": "javascript",
+        "legacy.es6": "javascript",
+        "Firefox.jsm": "javascript",
+        "UPPER.CJS": "javascript",
+        "bridge.cts": "typescript",
+        "worker.mts": "typescript",
+        "component.mjsx": "jsx",
+    }
+    for rel_path in expected_languages:
+        (repo / rel_path).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel_path).write_text("export const value = 1;\n", encoding="utf-8")
+    monkeypatch.setattr(
+        discovery,
+        "_list_git_non_ignored_paths",
+        lambda _repo: list(expected_languages),
+    )
+    policy = discovery.IngestionPolicy(text_fallback=False)
+
+    entries = discovery.discover(repo, policy=policy)
+
+    assert [(entry.rel_path, entry.language) for entry in entries] == sorted(
+        expected_languages.items()
+    )
+    for rel_path, language in expected_languages.items():
+        entry = discovery.build_file_entry(repo / rel_path, repo, policy=policy)
+        assert entry is not None
+        assert entry.language == language
+
+
+def test_discover_and_build_file_entry_classify_java_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    paths = [
+        "src/main/java/com/acme/App.java",
+        "src/test/java/com/acme/AppTest.JAVA",
+    ]
+    for rel_path in paths:
+        target = repo / rel_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("class App {}\n", encoding="utf-8")
+    monkeypatch.setattr(discovery, "_list_git_non_ignored_paths", lambda _repo: paths)
+    policy = discovery.IngestionPolicy(text_fallback=False)
+
+    entries = discovery.discover(repo, policy=policy)
+
+    assert [(entry.rel_path, entry.language) for entry in entries] == [
+        (rel_path, "java") for rel_path in sorted(paths)
+    ]
+    for rel_path in paths:
+        entry = discovery.build_file_entry(repo / rel_path, repo, policy=policy)
+        assert entry is not None
+        assert entry.language == "java"
+
+
 def test_git_ignore_lookup_failure_uses_fallback_spec(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

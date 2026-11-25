@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from scs.graph.models import NodeType, RelationshipType
+from scs.indexing.discovery import _EXTENSION_TO_LANGUAGE
 
 _RUST_FFI_PATH = (
     Path(__file__).resolve().parents[2]
@@ -103,6 +104,85 @@ func New() Item { return Item{} }
         for entity in payload["entities"]
     )
     assert any(edge["relationship"] == "contains" for edge in payload["edges"])
+
+
+def test_native_parser_exposes_all_js_ts_variant_extensions() -> None:
+    """Every native extension maps in discovery and handles JS/TS variants."""
+
+    native = importlib.import_module("scs._scs_native")
+    supported = set(native.parse_file_supported_extensions())
+    expected = {".cjs", ".mjs", ".cts", ".mts", ".mjsx", ".es6", ".jsm"}
+    assert expected <= supported
+    assert supported <= set(_EXTENSION_TO_LANGUAGE)
+
+    for rel_path, expected_qname in [
+        ("scripts/build.cjs", "scripts.build"),
+        ("src/entry.mjs", "src.entry"),
+        ("src/bridge.cts", "src.bridge"),
+        ("src/worker.mts", "src.worker"),
+        ("scripts/UPPER.CJS", "scripts.UPPER"),
+    ]:
+        payload = json.loads(
+            native.parse_file(
+                "const helper = require('./helper.cjs');\nexports.run = () => helper();\n",
+                rel_path,
+            )
+        )
+        assert any(
+            entity["kind"] == "file" and entity["qualified_name"] == expected_qname
+            for entity in payload["entities"]
+        )
+        assert any(
+            entity["kind"] == "function" and entity["name"] == "run"
+            for entity in payload["entities"]
+        )
+        assert any(
+            entity["kind"] == "import" and entity["name"] == "./helper.cjs"
+            for entity in payload["entities"]
+        )
+
+    assert native.parse_file("exports.x = 1;\n", ".cjs") is None
+
+
+def test_native_parser_exposes_java_entities_and_relationships() -> None:
+    """Java crosses the private native JSON boundary with symbols and edges."""
+
+    native = importlib.import_module("scs._scs_native")
+    assert ".java" in native.parse_file_supported_extensions()
+
+    payload = json.loads(
+        native.parse_file(
+            """package com.acme;
+
+import com.acme.model.User;
+
+public class UserService extends BaseService implements ServiceApi {
+    public User find(String id) {
+        return new User(id);
+    }
+}
+""",
+            "src/main/java/com/acme/UserService.java",
+        )
+    )
+
+    assert any(
+        entity["kind"] == "class"
+        and entity["qualified_name"] == "com.acme.UserService"
+        for entity in payload["entities"]
+    )
+    assert any(
+        entity["kind"] == "method"
+        and entity["qualified_name"] == "com.acme.UserService.find"
+        for entity in payload["entities"]
+    )
+    assert any(
+        entity["kind"] == "import" and entity["name"] == "User"
+        for entity in payload["entities"]
+    )
+    assert any(edge["relationship"] == "contains" for edge in payload["edges"])
+    assert any(edge["relationship"] == "inherits" for edge in payload["edges"])
+    assert any(edge["relationship"] == "implements" for edge in payload["edges"])
 
 
 def test_python_rust_enum_parity() -> None:

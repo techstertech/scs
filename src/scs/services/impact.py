@@ -42,7 +42,10 @@ def is_test_path(path: str) -> bool:
     return bool(
         {"test", "tests", "__tests__"}.intersection(source.parts)
         or source.name.startswith("test_")
-        or any(marker in source.name for marker in ("_test.", ".test.", ".spec.", "Tests.swift"))
+        or any(
+            marker in source.name
+            for marker in ("_test.", ".test.", ".spec.", "Tests.swift", "Test.java", "Tests.java")
+        )
     )
 
 
