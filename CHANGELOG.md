@@ -1,7 +1,16 @@
 # Changelog
 
-## 2026-11-14
+## 0.6.0 - 2026-11-24
 
+- feat(parser): add native Java (`.java`) ingestion and test-path detection
+- feat(parser): support JS/TS variant extensions (`.cjs`, `.mjs`, `.cts`, `.mts`,
+  `.mjsx`, `.es6`, `.jsm`), CommonJS/ESM extraction, relative import
+  resolution, and incremental re-indexing when language classification changes
+- refactor(storage): incorporate TSG (`crates/tsg`) in-tree and replace
+  unmaintained `chrono` with stdlib UTC RFC 3339 timestamp formatting
+- fix(config): prevent local model selection, downloads, and local model cache
+  creation when external providers are configured (`SCS_OPENAI_API_KEY`,
+  `$SCS_HOME/config.toml` precedence, and strict `model_profile = "external"`)
 - fix(evals): preserve nested review smoke failures
 
 ## 0.5.0 - 2026-11-14
