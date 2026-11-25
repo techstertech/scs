@@ -178,7 +178,7 @@ class SCSDaemon:
         if self._started:
             raise RuntimeError("SCS daemon is already started")
         paths = self.settings.paths
-        paths.ensure()
+        paths.ensure(include_model_cache=self.settings.uses_local_models)
         process_lock = ProcessLock(paths.home / ".daemon.lock")
         process_lock.acquire()
         runner: IngestionJobRunner | None = None

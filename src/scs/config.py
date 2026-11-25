@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from functools import cached_property
 from ipaddress import ip_address
+import os
 from pathlib import Path
 import platform
 import sys
@@ -45,6 +46,7 @@ LEGACY_MODEL_SETTINGS: Final[frozenset[str]] = frozenset(
         "openai_base_url",
         "openai_api_key",
         "OPENAI_API_KEY",
+        "SCS_OPENAI_API_KEY",
         "openai_compatible_base_url",
         "openai_compatible_trusted_hosts",
         "reranking_model",
@@ -66,6 +68,17 @@ def supports_local_models() -> bool:
         return False
     release = platform.mac_ver()[0]
     return bool(release) and int(release.split(".", 1)[0]) >= 14
+
+
+def _resolve_config_toml_path(home: str | Path | None = None) -> Path:
+    """Check <scs_home>/config.toml when SCS_HOME/home is set, else ~/.scs/config.toml."""
+
+    scs_home = home if home is not None else os.environ.get("SCS_HOME")
+    if scs_home is not None and str(scs_home).strip():
+        candidate = Path(scs_home).expanduser() / "config.toml"
+        if candidate.is_file():
+            return candidate
+    return Path.home() / ".scs" / "config.toml"
 
 
 class SCSSettings(BaseSettings):
@@ -92,7 +105,9 @@ class SCSSettings(BaseSettings):
     openai_base_url: str = DEFAULT_OPENAI_BASE_URL
     openai_api_key: SecretStr | None = Field(
         default=None,
-        validation_alias=AliasChoices("OPENAI_API_KEY", "openai_api_key"),
+        validation_alias=AliasChoices(
+            "SCS_OPENAI_API_KEY", "OPENAI_API_KEY", "openai_api_key"
+        ),
     )
     openai_compatible_base_url: str = DEFAULT_OPENAI_COMPATIBLE_BASE_URL
     openai_compatible_trusted_hosts: list[str] = Field(default_factory=list)
@@ -175,6 +190,12 @@ class SCSSettings(BaseSettings):
     def _validate_local_models(self) -> "SCSSettings":
         """Reject unsupported bundled identities without affecting custom services."""
 
+        if self.model_profile == "external" and (
+            self.embedding_provider == "local"
+            or self.reranking_provider == "local"
+            or self.decision_provider == "local"
+        ):
+            raise ValueError("model_profile='external' cannot enable local model roles")
         if not self.uses_local_models:
             return self
         if not supports_local_models():
@@ -239,11 +260,18 @@ class SCSSettings(BaseSettings):
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         """Load the SCS-owned TOML file below explicit values and environment."""
 
+        raw_init_kwargs = cast(object, getattr(init_settings, "init_kwargs", None))
+        init_home: str | Path | None = None
+        if isinstance(raw_init_kwargs, Mapping):
+            candidate_home = cast(Mapping[str, object], raw_init_kwargs).get("home")
+            if isinstance(candidate_home, (str, Path)):
+                init_home = candidate_home
+
         return (
             init_settings,
             env_settings,
             TomlConfigSettingsSource(
-                settings_cls, Path.home() / ".scs" / "config.toml"
+                settings_cls, _resolve_config_toml_path(init_home)
             ),
             dotenv_settings,
             file_secret_settings,
@@ -259,7 +287,7 @@ class SCSSettings(BaseSettings):
             raise ValueError(
                 "automatic reindex idle interval cannot be shorter than active interval"
             )
-        config_path = Path.home() / ".scs" / "config.toml"
+        config_path = _resolve_config_toml_path(self.home)
         if config_path.is_file():
             with config_path.open("rb") as config_file:
                 config_values = tomllib.load(config_file)

@@ -80,10 +80,15 @@ class SCSPaths:
             logs=_resolved(logs or default_log_directory()),
         )
 
-    def ensure(self) -> None:
+    def ensure(self, *, include_model_cache: bool = True) -> None:
         """Create SCS-owned directories only after repeating the safety gate."""
 
         validate_scs_home(self.home)
-        for directory in (self.home, self.model_cache, self.runtime, self.logs):
+        directories = (
+            (self.home, self.model_cache, self.runtime, self.logs)
+            if include_model_cache
+            else (self.home, self.runtime, self.logs)
+        )
+        for directory in directories:
             directory.mkdir(mode=0o700, parents=True, exist_ok=True)
             directory.chmod(0o700)

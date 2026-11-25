@@ -164,3 +164,70 @@ def test_local_roles_reject_wrong_identity_and_escaping_cache(fresh_mac: Path) -
         SCSSettings(embedding_provider="local", embedding_dimension=16)
     with pytest.raises(ValueError, match="model_cache"):
         SCSSettings(model_profile="local", model_cache=fresh_mac / "foreign")
+
+
+def test_scs_openai_api_key_preserves_openai_and_takes_precedence(
+    fresh_mac: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del fresh_mac
+    monkeypatch.setenv("OPENAI_API_KEY", "fallback-openai-key")
+    monkeypatch.setenv("SCS_OPENAI_API_KEY", "preferred-scs-openai-key")
+
+    settings = SCSSettings()
+
+    assert settings.embedding_provider == "openai"
+    assert settings.uses_local_models is False
+    assert settings.reranking_model is None
+    assert settings.decision_model is None
+    assert settings.effective_openai_api_key == "preferred-scs-openai-key"
+
+
+def test_scs_home_config_toml_selects_external_and_enforces_key_permissions(
+    fresh_mac: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del fresh_mac
+    custom_home = tmp_path / "custom-scs-home"
+    custom_home.mkdir()
+    config_path = custom_home / "config.toml"
+    config_path.write_text('embedding_provider = "openai_compatible"\n')
+    monkeypatch.setenv("SCS_HOME", str(custom_home))
+
+    settings = SCSSettings()
+
+    assert settings.home == custom_home
+    assert settings.embedding_provider == "openai_compatible"
+    assert settings.uses_local_models is False
+    assert settings.decision_model is None
+
+    config_path.write_text(
+        'embedding_provider = "openai"\nopenai_api_key = "exposed-secret"\n'
+    )
+    config_path.chmod(0o644)
+    with pytest.raises(ValueError, match="owner-only permissions"):
+        SCSSettings()
+
+    config_path.chmod(0o600)
+    secured = SCSSettings()
+    assert secured.effective_openai_api_key == "exposed-secret"
+    assert secured.uses_local_models is False
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"embedding_provider": "local"},
+        {"reranking_provider": "local"},
+        {"decision_provider": "local"},
+        {"reranking_provider": "local", "reranking_model": None},
+    ],
+)
+def test_external_profile_rejects_local_model_roles(
+    fresh_mac: Path,
+    overrides: dict[str, object],
+) -> None:
+    del fresh_mac
+    with pytest.raises(ValueError, match="external"):
+        SCSSettings.model_validate({"model_profile": "external", **overrides})

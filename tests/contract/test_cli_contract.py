@@ -271,14 +271,17 @@ def test_daemon_stop_forwards_upgrade_cancellation(
 class _Paths:
     def __init__(self, home: Path) -> None:
         self.home = home
+        self.include_model_cache_calls: list[bool] = []
 
-    def ensure(self) -> None:
+    def ensure(self, *, include_model_cache: bool = True) -> None:
+        self.include_model_cache_calls.append(include_model_cache)
         self.home.mkdir(parents=True, exist_ok=True)
 
 
 class _Settings:
     def __init__(self, home: Path) -> None:
         self.paths = _Paths(home)
+        self.uses_local_models = False
 
 
 @pytest.mark.parametrize("command", ["doctor", "status"])
@@ -291,8 +294,9 @@ def test_operational_commands_report_daemon_unavailable_as_json(
     async def unavailable(*_args: object, **_kwargs: object) -> dict[str, object]:
         raise FileNotFoundError("scs.sock is unavailable")
 
+    settings = _Settings(tmp_path / "home")
     monkeypatch.setattr("scs.cli._call_daemon", unavailable)
-    monkeypatch.setattr("scs.cli.SCSSettings", lambda: _Settings(tmp_path / "home"))
+    monkeypatch.setattr("scs.cli.SCSSettings", lambda: settings)
     monkeypatch.setattr("scs.cli.DaemonController", _DaemonController)
 
     assert main([command]) == 1
@@ -301,5 +305,7 @@ def test_operational_commands_report_daemon_unavailable_as_json(
     assert payload["daemon"]["available"] is False
     assert payload["daemon"]["ready"] is False
     assert payload["daemon"]["error"] == "FileNotFoundError"
+    if command == "doctor":
+        assert settings.paths.include_model_cache_calls == [False]
     if command == "status":
         assert payload["daemon"]["available"] is False

@@ -229,8 +229,15 @@ def _settings(
     def forbid_local_runtime(*_args: object, **_kwargs: object) -> NoReturn:
         pytest.fail("an external profile attempted bundled model construction")
 
+    def forbid_local_download(*_args: object, **_kwargs: object) -> NoReturn:
+        pytest.fail("an external profile attempted a bundled model download")
+
     monkeypatch.setattr(
         scs_main, "LocalModelRuntime", forbid_local_runtime, raising=False
+    )
+    monkeypatch.setattr(
+        "scs.local_models.artifacts.ModelCache._download",
+        forbid_local_download,
     )
     return SCSSettings(
         home=tmp_path / "scs",
@@ -315,6 +322,7 @@ async def test_existing_service_profile_keeps_ids_payloads_and_failure_fallback(
     finally:
         await daemon.stop()
 
+    assert not settings.paths.model_cache.exists()
     readiness = [
         request for request in external_peer.requests if request.method == "GET"
     ]
@@ -379,6 +387,7 @@ async def test_existing_embeddings_only_profile_keeps_optional_roles_disabled(
     finally:
         await daemon.stop()
 
+    assert not settings.paths.model_cache.exists()
     assert external_peer.posts("/v1/embeddings")
     assert {request.path for request in external_peer.requests} == {"/v1/embeddings"}
     assert all(request.authorization is None for request in external_peer.requests)
@@ -502,4 +511,96 @@ async def test_mixed_profile_runs_only_decisions_locally_and_preserves_external_
         request.payload["model"] == RERANKING_ID
         for request in external_peer.posts("/v1/rerank")
     )
+    assert all(request.authorization is None for request in external_peer.requests)
+
+
+@pytest.mark.asyncio
+async def test_scs_home_config_toml_uses_external_services_without_local_model_cache(
+    tmp_path: Path,
+    short_runtime: Path,
+    external_peer: ServicePeer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_home = tmp_path / "user"
+    user_home.mkdir()
+
+    def home(_cls: type[Path]) -> Path:
+        return user_home
+
+    monkeypatch.setattr(Path, "home", classmethod(home))
+    monkeypatch.setattr("scs.config.supports_local_models", lambda: True)
+    for name in (
+        "OPENAI_API_KEY",
+        "SCS_OPENAI_API_KEY",
+        "SCS_HOME",
+        "SCS_MODEL_CACHE",
+        "SCS_MODEL_PROFILE",
+        "SCS_EMBEDDING_PROVIDER",
+        "SCS_EMBEDDING_MODEL",
+        "SCS_EMBEDDING_DIMENSION",
+        "SCS_OPENAI_COMPATIBLE_BASE_URL",
+        "SCS_OPENAI_COMPATIBLE_TRUSTED_HOSTS",
+        "SCS_RERANKING_PROVIDER",
+        "SCS_RERANKING_MODEL",
+        "SCS_DECISION_PROVIDER",
+        "SCS_DECISION_MODEL",
+        "SCS_DECISION_BASE_URL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    custom_home = tmp_path / "custom-scs"
+    custom_home.mkdir()
+    (custom_home / "config.toml").write_text(
+        "\n".join(
+            [
+                'embedding_provider = "openai_compatible"',
+                f'embedding_model = "{EMBEDDING_ID}"',
+                "embedding_dimension = 2",
+                f'openai_compatible_base_url = "{external_peer.base_url}"',
+                'openai_compatible_trusted_hosts = ["127.0.0.1"]',
+            ]
+        )
+        + "\n"
+    )
+    monkeypatch.setenv("SCS_HOME", str(custom_home))
+
+    def forbid_local_runtime(*_args: object, **_kwargs: object) -> NoReturn:
+        pytest.fail("an external profile attempted bundled model construction")
+
+    def forbid_local_download(*_args: object, **_kwargs: object) -> NoReturn:
+        pytest.fail("an external profile attempted a bundled model download")
+
+    monkeypatch.setattr(
+        scs_main, "LocalModelRuntime", forbid_local_runtime, raising=False
+    )
+    monkeypatch.setattr(
+        "scs.local_models.artifacts.ModelCache._download",
+        forbid_local_download,
+    )
+
+    settings = SCSSettings(
+        runtime_dir=short_runtime,
+        log_dir=tmp_path / "logs",
+        auto_reindex_enabled=False,
+    )
+    assert settings.home == custom_home
+    assert settings.uses_local_models is False
+
+    daemon = SCSDaemon(settings)
+    try:
+        await daemon.start()
+        client = SCSClient(short_runtime / "scs.sock")
+        repository = tmp_path / "repository"
+        await _index(client, repository)
+        _assert_external_vector_identity(settings.home)
+        result = await client.call(
+            "knowledge.query",
+            {"repo_path": str(repository), "goal": GOAL, "mode": "balanced"},
+        )
+        assert _object(result["routing"])["provider"] == "deterministic"
+    finally:
+        await daemon.stop()
+
+    assert not settings.paths.model_cache.exists()
+    assert external_peer.posts("/v1/embeddings")
     assert all(request.authorization is None for request in external_peer.requests)

@@ -182,7 +182,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if command == "doctor":
         settings = SCSSettings()
         try:
-            settings.paths.ensure()
+            settings.paths.ensure(include_model_cache=settings.uses_local_models)
         except Exception as error:
             print(
                 json.dumps(

@@ -10,17 +10,21 @@ available to lazily spawned daemon processes without placing it in MCP config.
 ## Model profile selection
 
 `model_profile` controls defaults. Explicit role settings retain their precedence.
+Configuration files load from `$SCS_HOME/config.toml` when present, falling back
+to `~/.scs/config.toml`.
 
 | Profile | Default behavior |
 | --- | --- |
 | `auto` | Use local models on Apple Silicon with macOS 14+ when no model settings exist. Preserve legacy behavior when model settings are present. |
 | `local` | Supply bundled defaults for roles without explicit settings. |
-| `external` | Supply the previous external defaults. |
+| `external` | Supply the previous external defaults, reject local model roles, and never create or populate the local model cache. |
 
 Automatic selection treats existing providers, models, endpoints, trust lists,
 credentials, model-cache paths, and decision controls as explicit model settings.
-An existing `OPENAI_API_KEY` also preserves OpenAI selection. Omitted optional
-roles remain disabled for those existing configurations. SCS does not rewrite TOML.
+An existing `SCS_OPENAI_API_KEY` or `OPENAI_API_KEY` also preserves OpenAI
+selection. External configurations never create the local model cache or download
+bundled artifacts. Omitted optional roles remain disabled for those existing
+configurations. SCS does not rewrite TOML.
 
 ## Bundled local models
 
