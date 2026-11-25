@@ -641,3 +641,299 @@ async def test_diff_impact_and_refresh_dirty_live_daemon_auto_freshness(
         assert any(
             r.get("enclosing_symbol") == "calc.test.testTaxUpdated" for r in ref_list
         )
+
+
+@pytest.mark.asyncio
+async def test_iife_legacy_js_root_raw_html_script_globals_and_no_oversized_gap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / "apps" / "web" / "public" / "assets").mkdir(parents=True)
+    (repo / "apps" / "web" / "src").mkdir(parents=True)
+    (repo / "apps" / "web" / "tests").mkdir(parents=True)
+
+    (repo / "apps" / "web" / "public" / "assets" / "vendor-invoices-panel.js").write_text(
+        "(function (global) {\n"
+        "  function renderInvoiceRows(rows, currency) {\n"
+        "    return rows.length + ':' + currency;\n"
+        "  }\n"
+        "  const formatTotal = (amount) => String(amount);\n"
+        "  global.__psInvoices = { renderInvoiceRows, formatTotal };\n"
+        "})(window);\n",
+        encoding="utf-8",
+    )
+
+    # Classic >70 KB IIFE JS module (previously flagged 'oversized' in contract_gaps)
+    padding = "// legacy padding line\n" * 3_100
+    (repo / "apps" / "web" / "public" / "assets" / "asset-management-door.js").write_text(
+        "(function () {\n"
+        "  function initDoor(rootId) {\n"
+        "    return rootId;\n"
+        "  }\n"
+        "  window.__psDoor = initDoor;\n"
+        "  window.__psDoorApi = { initDoor };\n"
+        f"{padding}"
+        "})();\n",
+        encoding="utf-8",
+    )
+    (repo / "apps" / "web" / "public" / "door.html").write_text(
+        "<!doctype html>\n"
+        "<html>\n"
+        "  <body>\n"
+        '    <script src="/assets/asset-management-door.js"></script>\n'
+        "  </body>\n"
+        "</html>\n",
+        encoding="utf-8",
+    )
+    (repo / "apps" / "web" / "tests" / "door.browser.spec.mjs").write_text(
+        'import doorSource from "/assets/asset-management-door.js?raw";\n'
+        "\n"
+        "export function testRawDoor() {\n"
+        "  return doorSource.length;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    (repo / "apps" / "web" / "tests" / "door_url.test.mjs").write_text(
+        "export function loadLegacyUrl() {\n"
+        '  return new URL("../public/assets/asset-management-door.js", import.meta.url);\n'
+        "}\n",
+        encoding="utf-8",
+    )
+    (repo / "apps" / "web" / "src" / "DoorConsumer.tsx").write_text(
+        "export function DoorConsumer() {\n"
+        "  const fn = window.__psDoor;\n"
+        "  return fn('main') + window.__psDoorApi.initDoor('sub');\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    async with _running_indexed_daemon(tmp_path, repo, monkeypatch) as (_, client):
+        inspect_res = await client.call(
+            "knowledge.query",
+            {
+                "goal": "Inspect vendor-invoices-panel.js",
+                "repo_path": str(repo),
+                "file_paths": ["apps/web/public/assets/vendor-invoices-panel.js"],
+                "playbook": "INSPECT_FILES",
+                "include_signatures": True,
+            },
+        )
+        sym_names = {
+            str(s.get("name"))
+            for s in cast(list[dict[str, object]], inspect_res["evidence"]["symbols"])
+        }
+        assert "renderInvoiceRows" in sym_names
+        assert "formatTotal" in sym_names
+
+        impact_res = await client.call(
+            "knowledge.query",
+            {
+                "goal": "Impact of asset-management-door.js",
+                "repo_path": str(repo),
+                "file_paths": ["apps/web/public/assets/asset-management-door.js"],
+                "playbook": "IMPACT",
+                "limit": 20,
+            },
+        )
+        ev = cast(dict[str, object], impact_res["evidence"])
+        assert ev.get("contract_gaps", []) == []
+        rel_files = {
+            str(r.get("path", [{}])[-1].get("file_path"))
+            for r in cast(list[dict[str, object]], ev["relationships"])
+            if r.get("path")
+        }
+        dep_files = {
+            str(f.get("file_path"))
+            for f in cast(list[dict[str, object]], ev["files"])
+        }
+        all_dep_paths = rel_files | dep_files
+        assert "apps/web/public/door.html" in all_dep_paths
+        assert "apps/web/tests/door.browser.spec.mjs" in all_dep_paths
+        assert "apps/web/tests/door_url.test.mjs" in all_dep_paths
+        assert "apps/web/src/DoorConsumer.tsx" in all_dep_paths
+        test_paths = {
+            str(t.get("file_path"))
+            for t in cast(list[dict[str, object]], ev["test_targets"])
+        }
+        assert "apps/web/tests/door.browser.spec.mjs" in test_paths
+        assert "apps/web/tests/door_url.test.mjs" in test_paths
+
+
+@pytest.mark.asyncio
+async def test_transitive_impact_paths_and_test_targets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "tests").mkdir(parents=True)
+
+    (repo / "src" / "CaptureFields.tsx").write_text(
+        "export function CaptureFields() {\n"
+        "  return <div>capture</div>;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    (repo / "src" / "TaxCaptureFields.tsx").write_text(
+        'import { CaptureFields } from "./CaptureFields";\n'
+        "\n"
+        "export function TaxCaptureFields() {\n"
+        "  return <CaptureFields />;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    (repo / "tests" / "tax_capture_foundation.browser.spec.mjs").write_text(
+        'import { TaxCaptureFields } from "../src/TaxCaptureFields";\n'
+        "\n"
+        "export function testTaxCapture() {\n"
+        "  return TaxCaptureFields();\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    async with _running_indexed_daemon(tmp_path, repo, monkeypatch) as (_, client):
+        file_impact = await client.call(
+            "knowledge.query",
+            {
+                "goal": "Impact of CaptureFields.tsx",
+                "repo_path": str(repo),
+                "file_paths": ["src/CaptureFields.tsx"],
+                "playbook": "IMPACT",
+                "limit": 10,
+            },
+        )
+        fev = cast(dict[str, list[dict[str, object]]], file_impact["evidence"])
+        ftotals = cast(dict[str, int], file_impact["total_counts"])
+        assert fev["relationships"]
+        assert ftotals["relationships"] >= len(fev["relationships"])
+        assert any(
+            t.get("file_path") == "tests/tax_capture_foundation.browser.spec.mjs"
+            for t in fev["test_targets"]
+        )
+
+        range_impact = await client.call(
+            "knowledge.query",
+            {
+                "goal": "Range impact of CaptureFields",
+                "repo_path": str(repo),
+                "changed_ranges": [
+                    {"file_path": "src/CaptureFields.tsx", "start_line": 0, "end_line": 2}
+                ],
+                "playbook": "IMPACT",
+                "limit": 10,
+            },
+        )
+        rev = cast(dict[str, list[dict[str, object]]], range_impact["evidence"])
+        assert any(
+            t.get("file_path") == "tests/tax_capture_foundation.browser.spec.mjs"
+            for t in rev["test_targets"]
+        )
+
+
+@pytest.mark.asyncio
+async def test_legacy_parser_version_upgrades_automatically_via_ingest_and_refresh_dirty(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from scs.graph.models import NodeType
+    from scs.graph.native import NativeGraph
+    from scs.indexing.parser.native import NativeParser
+    from scs.indexing.pipeline import IngestionPipeline
+    from scs.providers.base import ProviderMetadata
+
+    repo = tmp_path / "pipeline_repo"
+    repo.mkdir()
+    (repo / "lib.ts").write_text(
+        "export function helperFn(x: number): number {\n  return x + 1;\n}\n",
+        encoding="utf-8",
+    )
+    (repo / "consumer.ts").write_text(
+        'import { helperFn } from "./lib";\n'
+        "\n"
+        "export function callHelper() {\n"
+        "  return helperFn(42);\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    graph = NativeGraph(
+        database_path=tmp_path / "graph.db",
+        vector_path=tmp_path / "vectors.usearch",
+        provider_metadata_path=tmp_path / "provider.json",
+        provider=ProviderMetadata("test", "disabled", 2, False, "offline"),
+    )
+    pipeline = IngestionPipeline(graph=graph, parser=NativeParser())
+    pipeline.ingest(repo)
+
+    # Replace FILE nodes without parser_version to simulate a pre-v0.7.1 index
+    # (TSG upsert merges attributes in place unless the node is replaced).
+    repo_id = graph.get_or_create_repo_sync(str(repo.resolve()))
+    legacy_nodes = []
+    legacy_ids = []
+    for fnode in graph.list_nodes_sync(node_type=NodeType.FILE, repo_id=repo_id):
+        meta = dict(fnode.metadata)
+        meta.pop("parser_version", None)
+        legacy_ids.append(fnode.id)
+        legacy_nodes.append(
+            {
+                "id": fnode.id,
+                "type": fnode.type.value,
+                "name": fnode.name,
+                "content": fnode.content,
+                "metadata": meta,
+                "repo_id": repo_id,
+            }
+        )
+    graph.delete_nodes_sync(legacy_ids)
+    graph.batch_upsert_nodes_sync(legacy_nodes)
+
+    upgraded = pipeline.ingest(repo, force=False)
+    assert upgraded.files_changed == 2
+    noop = pipeline.ingest(repo, force=False)
+    assert noop.files_changed == 0
+
+    # Also verify refresh_dirty=True upgrades a stale FILE node in live daemon
+    repo2 = tmp_path / "daemon_repo"
+    repo2.mkdir()
+    (repo2 / "mod.ts").write_text(
+        "(function () {\n  function insideIife(v: number) { return v; }\n})();\n",
+        encoding="utf-8",
+    )
+    async with _running_indexed_daemon(tmp_path / "d", repo2, monkeypatch) as (daemon, client):
+        _rec, dgraph = daemon._require_stores().ensure_graph(repo2)
+        drepo_id = dgraph.get_or_create_repo_sync(str(repo2.resolve()))
+        for fnode in dgraph.list_nodes_sync(node_type=NodeType.FILE, repo_id=drepo_id):
+            dgraph.batch_upsert_nodes_sync(
+                [
+                    {
+                        "id": fnode.id,
+                        "type": fnode.type.value,
+                        "name": fnode.name,
+                        "content": fnode.content,
+                        "metadata": {**dict(fnode.metadata), "parser_version": 1},
+                        "repo_id": drepo_id,
+                    }
+                ]
+            )
+        refreshed = await client.call(
+            "knowledge.query",
+            {
+                "goal": "Inspect mod.ts after schema upgrade",
+                "repo_path": str(repo2),
+                "file_paths": ["mod.ts"],
+                "playbook": "INSPECT_FILES",
+                "refresh_dirty": True,
+                "include_signatures": True,
+            },
+        )
+        stages = {
+            str(s["stage"]): s
+            for s in cast(list[dict[str, object]], refreshed["trace"])
+        }
+        assert stages["refresh"]["status"] == "ok"
+        assert stages["refresh"]["counts"]["refreshed"] == 1
+        assert any(
+            s.get("name") == "insideIife"
+            for s in cast(list[dict[str, object]], refreshed["evidence"]["symbols"])
+        )

@@ -424,6 +424,23 @@ fn collect_object_pattern_bindings(
     (bindings, imported_symbols, has_wildcard)
 }
 
+fn extract_url_import_meta(node: &Node, source: &[u8]) -> Option<String> {
+    if node.kind() != "new_expression" {
+        return None;
+    }
+    let ctor = node.child_by_field_name("constructor")?;
+    if get_text(&ctor, source).trim() != "URL" {
+        return None;
+    }
+    let args = node.child_by_field_name("arguments")?;
+    let first = args.named_child(0)?;
+    let second = args.named_child(1)?;
+    if !get_text(&second, source).contains("import.meta.url") {
+        return None;
+    }
+    extract_string_literal(&first, source)
+}
+
 fn require_member_access(node: Node, source: &[u8]) -> Option<(String, String)> {
     if node.kind() != "member_expression" {
         return None;
@@ -435,14 +452,106 @@ fn require_member_access(node: Node, source: &[u8]) -> Option<(String, String)> 
     (!prop_name.is_empty()).then_some((spec, prop_name))
 }
 
-fn normalize_global_namespace(raw: &str) -> Option<String> {
-    if let Some(ns) = raw.strip_prefix("window.") {
-        (!ns.is_empty()).then(|| format!("window.{ns}"))
-    } else if let Some(ns) = raw.strip_prefix("globalThis.") {
-        (!ns.is_empty()).then(|| format!("window.{ns}"))
-    } else {
-        None
+const STANDARD_GLOBAL_PROPS: &[&str] = &[
+    "location", "document", "console", "history", "navigator", "screen", "performance",
+    "localStorage", "sessionStorage", "crypto", "fetch", "alert", "confirm", "prompt",
+    "open", "close", "focus", "blur", "print", "scroll", "scrollTo", "scrollBy",
+    "addEventListener", "removeEventListener", "dispatchEvent", "setTimeout", "clearTimeout",
+    "setInterval", "clearInterval", "requestAnimationFrame", "cancelAnimationFrame",
+    "queueMicrotask", "postMessage", "matchMedia", "getComputedStyle", "atob", "btoa",
+    "structuredClone", "onload", "onerror", "onresize", "onscroll", "onbeforeunload",
+    "onunload", "onhashchange", "onpopstate", "onmessage", "name", "status", "title",
+    "innerWidth", "innerHeight", "outerWidth", "outerHeight", "scrollX", "scrollY",
+    "pageXOffset", "pageYOffset", "devicePixelRatio", "parent", "top", "opener", "frames",
+    "self", "window", "globalThis", "undefined", "NaN", "Infinity", "Object", "Array",
+    "String", "Number", "Boolean", "Symbol", "BigInt", "Math", "Date", "RegExp", "Error",
+    "Promise", "Map", "Set", "WeakMap", "WeakSet", "JSON", "Intl", "URL", "URLSearchParams",
+    "Headers", "Request", "Response", "Event", "CustomEvent", "AbortController", "FormData",
+    "Blob", "File", "FileReader", "WebSocket", "Worker", "MutationObserver",
+    "ResizeObserver", "IntersectionObserver", "HTMLElement", "Node", "Element", "Document",
+    "Window", "CSS", "DOMParser", "XMLHttpRequest", "Image", "Audio", "Option",
+];
+
+fn is_custom_global_prop(prop: &str) -> bool {
+    !prop.is_empty() && !STANDARD_GLOBAL_PROPS.contains(&prop)
+}
+
+fn contains_global_word(raw: &str) -> bool {
+    raw.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
+        .any(|tok| matches!(tok, "window" | "globalThis" | "self"))
+}
+
+fn param_binding_name(param: Node, source: &[u8]) -> Option<String> {
+    match param.kind() {
+        "identifier" => {
+            let s = get_text(&param, source).trim();
+            (!s.is_empty()).then(|| s.to_string())
+        }
+        "required_parameter" | "optional_parameter" => param
+            .child_by_field_name("pattern")
+            .filter(|n| n.kind() == "identifier")
+            .map(|n| get_text(&n, source).trim().to_string())
+            .filter(|s| !s.is_empty()),
+        _ => None,
     }
+}
+
+fn extract_top_level_iife<'a>(node: Node<'a>, source: &[u8]) -> Option<(Node<'a>, HashSet<String>)> {
+    let mut target = unwrap_ts_expr(node);
+    if target.kind() == "unary_expression" {
+        let arg = target
+            .child_by_field_name("argument")
+            .or_else(|| target.named_child(0))?;
+        target = unwrap_ts_expr(arg);
+    }
+    if target.kind() != "call_expression" {
+        return None;
+    }
+    let callee = target.child_by_field_name("function")?;
+    let fn_node = unwrap_ts_expr(callee);
+    if !matches!(
+        fn_node.kind(),
+        "function_expression" | "generator_function" | "arrow_function"
+    ) {
+        return None;
+    }
+    let body = fn_node.child_by_field_name("body")?;
+    if body.kind() != "statement_block" {
+        return None;
+    }
+
+    let mut param_names: Vec<String> = Vec::new();
+    if let Some(params) = fn_node.child_by_field_name("parameters") {
+        let mut pc = params.walk();
+        for p in params.named_children(&mut pc) {
+            param_names.push(param_binding_name(p, source).unwrap_or_default());
+        }
+    } else if let Some(single) = fn_node.child_by_field_name("parameter") {
+        param_names.push(param_binding_name(single, source).unwrap_or_default());
+    }
+
+    let mut aliases = HashSet::new();
+    if let Some(args_node) = target.child_by_field_name("arguments") {
+        let mut ac = args_node.walk();
+        for (idx, arg) in args_node.named_children(&mut ac).enumerate() {
+            if let Some(param_name) = param_names.get(idx).filter(|s| !s.is_empty()) {
+                if contains_global_word(get_text(&arg, source)) {
+                    aliases.insert(param_name.clone());
+                }
+            }
+        }
+    }
+
+    Some((body, aliases))
+}
+
+fn normalize_global_namespace(raw: &str) -> Option<String> {
+    let rest = raw
+        .strip_prefix("window.")
+        .or_else(|| raw.strip_prefix("globalThis."))
+        .or_else(|| raw.strip_prefix("self."))?;
+    let first_seg = rest.split('.').next().unwrap_or("");
+    (is_custom_global_prop(first_seg) && !rest.is_empty()).then(|| format!("window.{rest}"))
 }
 
 fn unwrap_ts_expr(mut node: Node) -> Node {
@@ -466,21 +575,26 @@ fn unwrap_ts_expr(mut node: Node) -> Node {
     }
 }
 
-fn is_global_root_node(node: Node, source: &[u8]) -> bool {
+fn is_global_root_node(node: Node, source: &[u8], global_aliases: &HashSet<String>) -> bool {
     let unwrapped = unwrap_ts_expr(node);
-    matches!(get_text(&unwrapped, source).trim(), "window" | "globalThis")
+    let raw = get_text(&unwrapped, source).trim();
+    matches!(raw, "window" | "globalThis" | "self") || global_aliases.contains(raw)
 }
 
-fn extract_global_namespace_node(node: Node, source: &[u8]) -> Option<String> {
+fn extract_global_namespace_node(
+    node: Node,
+    source: &[u8],
+    global_aliases: &HashSet<String>,
+) -> Option<String> {
     let unwrapped = unwrap_ts_expr(node);
     if unwrapped.kind() == "member_expression" {
         if let (Some(obj), Some(prop)) = (
             unwrapped.child_by_field_name("object"),
             unwrapped.child_by_field_name("property"),
         ) {
-            if is_global_root_node(obj, source) {
+            if is_global_root_node(obj, source, global_aliases) {
                 let prop_name = get_text(&prop, source).trim();
-                if !prop_name.is_empty() {
+                if is_custom_global_prop(prop_name) {
                     return Some(format!("window.{prop_name}"));
                 }
             }
@@ -509,11 +623,100 @@ fn extract_object_option_string(obj: Node, source: &[u8], target_key: &str) -> O
     None
 }
 
+fn emit_bridge_caller_edge(
+    enclosing_qname: &str,
+    ns: &str,
+    member: &str,
+    node: &Node,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut meta = HashMap::new();
+    meta.insert("reference_kind".to_string(), json!("bridge_caller"));
+    meta.insert("bridge_namespace".to_string(), json!(ns));
+    meta.insert("bridge_member".to_string(), json!(member));
+    meta.insert("start_line".to_string(), json!(node.start_position().row));
+    meta.insert("end_line".to_string(), json!(node.end_position().row));
+    meta.insert("enclosing_symbol".to_string(), json!(enclosing_qname));
+    edges.push(ParsedEdge::with_metadata(
+        enclosing_qname.to_string(),
+        format!("__scs_bridge_caller__:{ns}:{member}"),
+        "references",
+        meta,
+    ));
+}
+
+fn emit_global_object_providers(
+    ns: &str,
+    obj: Node,
+    source: &[u8],
+    enclosing_qname: &str,
+    edges: &mut Vec<ParsedEdge>,
+    filter_custom: bool,
+) {
+    let mut oc = obj.walk();
+    for item in obj.named_children(&mut oc) {
+        match item.kind() {
+            "shorthand_property_identifier" => {
+                let m = get_text(&item, source).trim();
+                if !m.is_empty() && (!filter_custom || is_custom_global_prop(m)) {
+                    let mut meta = HashMap::new();
+                    meta.insert("reference_kind".to_string(), json!("bridge_provider"));
+                    meta.insert("bridge_namespace".to_string(), json!(ns));
+                    meta.insert("bridge_member".to_string(), json!(m));
+                    meta.insert("handler_symbol".to_string(), json!(m));
+                    meta.insert("start_line".to_string(), json!(item.start_position().row));
+                    meta.insert("end_line".to_string(), json!(item.end_position().row));
+                    meta.insert("enclosing_symbol".to_string(), json!(enclosing_qname));
+                    edges.push(ParsedEdge::with_metadata(
+                        enclosing_qname.to_string(),
+                        format!("__scs_bridge_provider__:{ns}:{m}"),
+                        "references",
+                        meta,
+                    ));
+                }
+            }
+            "pair" => {
+                if let Some(k) = item.child_by_field_name("key") {
+                    let m = get_text(&k, source)
+                        .trim()
+                        .trim_matches(['"', '\''])
+                        .trim();
+                    if !m.is_empty() && (!filter_custom || is_custom_global_prop(m)) {
+                        let mut meta = HashMap::new();
+                        meta.insert("reference_kind".to_string(), json!("bridge_provider"));
+                        meta.insert("bridge_namespace".to_string(), json!(ns));
+                        meta.insert("bridge_member".to_string(), json!(m));
+                        if let Some(v) = item.child_by_field_name("value") {
+                            if v.kind() == "identifier" {
+                                meta.insert(
+                                    "handler_symbol".to_string(),
+                                    json!(get_text(&v, source).trim()),
+                                );
+                            }
+                        }
+                        meta.insert("start_line".to_string(), json!(item.start_position().row));
+                        meta.insert("end_line".to_string(), json!(item.end_position().row));
+                        meta.insert("enclosing_symbol".to_string(), json!(enclosing_qname));
+                        edges.push(ParsedEdge::with_metadata(
+                            enclosing_qname.to_string(),
+                            format!("__scs_bridge_provider__:{ns}:{m}"),
+                            "references",
+                            meta,
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 fn extract_ts_http_and_bridges(
     node: &Node,
     source: &[u8],
     enclosing_qname: &str,
     edges: &mut Vec<ParsedEdge>,
+    global_aliases: &HashSet<String>,
 ) {
     match node.kind() {
         "call_expression" => {
@@ -622,35 +825,46 @@ fn extract_ts_http_and_bridges(
                             let obj_raw = get_text(&obj, source).trim();
                             let obj_lower = obj_raw.to_ascii_lowercase();
 
-                            // 3a) window.<ns>.<member>(...) / globalThis.<ns>.<member>(...)
-                            if let Some(ns) = extract_global_namespace_node(obj, source) {
-                                if !prop_name.is_empty() {
-                                    let mut meta = HashMap::new();
-                                    meta.insert(
-                                        "reference_kind".to_string(),
-                                        json!("bridge_caller"),
-                                    );
-                                    meta.insert("bridge_namespace".to_string(), json!(ns));
-                                    meta.insert("bridge_member".to_string(), json!(prop_name));
-                                    meta.insert(
-                                        "start_line".to_string(),
-                                        json!(node.start_position().row),
-                                    );
-                                    meta.insert(
-                                        "end_line".to_string(),
-                                        json!(node.end_position().row),
-                                    );
-                                    meta.insert(
-                                        "enclosing_symbol".to_string(),
-                                        json!(enclosing_qname),
-                                    );
-                                    edges.push(ParsedEdge::with_metadata(
-                                        enclosing_qname.to_string(),
-                                        format!("__scs_bridge_caller__:{ns}:{prop_name}"),
-                                        "references",
-                                        meta,
-                                    ));
+                            // 3a) Object.assign(window, { ... })
+                            if get_text(&func, source).trim() == "Object.assign"
+                                && args.len() >= 2
+                                && is_global_root_node(args[0], source, global_aliases)
+                            {
+                                for arg in &args[1..] {
+                                    if arg.kind() == "object" {
+                                        emit_global_object_providers(
+                                            "window",
+                                            *arg,
+                                            source,
+                                            enclosing_qname,
+                                            edges,
+                                            true,
+                                        );
+                                    }
                                 }
+                            }
+
+                            // 3b) window.<ns>.<member>(...) / window.<member>(...) / globalThis / aliases
+                            if let Some(ns) = extract_global_namespace_node(obj, source, global_aliases) {
+                                if !prop_name.is_empty() {
+                                    emit_bridge_caller_edge(
+                                        enclosing_qname,
+                                        &ns,
+                                        prop_name,
+                                        node,
+                                        edges,
+                                    );
+                                }
+                            } else if is_global_root_node(obj, source, global_aliases)
+                                && is_custom_global_prop(prop_name)
+                            {
+                                emit_bridge_caller_edge(
+                                    enclosing_qname,
+                                    "window",
+                                    prop_name,
+                                    node,
+                                    edges,
+                                );
                             } else if obj_raw == "commands" && !prop_name.is_empty() {
                                 // 3b) commands.<member>(...)
                                 let mut meta = HashMap::new();
@@ -830,7 +1044,7 @@ fn extract_ts_http_and_bridges(
                         left.child_by_field_name("property"),
                     ) {
                         let prop_name = get_text(&prop, source).trim();
-                        if let Some(ns) = extract_global_namespace_node(obj, source) {
+                        if let Some(ns) = extract_global_namespace_node(obj, source, global_aliases) {
                             if !prop_name.is_empty() {
                                 let mut meta = HashMap::new();
                                 meta.insert("reference_kind".to_string(), json!("bridge_provider"));
@@ -861,93 +1075,52 @@ fn extract_ts_http_and_bridges(
                                     meta,
                                 ));
                             }
-                        } else if is_global_root_node(obj, source)
-                            && !prop_name.is_empty()
-                            && right.kind() == "object"
+                        } else if is_global_root_node(obj, source, global_aliases)
+                            && is_custom_global_prop(prop_name)
                         {
-                            let ns = format!("window.{prop_name}");
-                            let mut oc = right.walk();
-                            for item in right.named_children(&mut oc) {
-                                match item.kind() {
-                                    "shorthand_property_identifier" => {
-                                        let m = get_text(&item, source).trim();
-                                        if !m.is_empty() {
-                                            let mut meta = HashMap::new();
-                                            meta.insert(
-                                                "reference_kind".to_string(),
-                                                json!("bridge_provider"),
-                                            );
-                                            meta.insert("bridge_namespace".to_string(), json!(ns));
-                                            meta.insert("bridge_member".to_string(), json!(m));
-                                            meta.insert(
-                                                "handler_symbol".to_string(),
-                                                json!(m),
-                                            );
-                                            meta.insert(
-                                                "start_line".to_string(),
-                                                json!(item.start_position().row),
-                                            );
-                                            meta.insert(
-                                                "end_line".to_string(),
-                                                json!(item.end_position().row),
-                                            );
-                                            meta.insert(
-                                                "enclosing_symbol".to_string(),
-                                                json!(enclosing_qname),
-                                            );
-                                            edges.push(ParsedEdge::with_metadata(
-                                                enclosing_qname.to_string(),
-                                                format!("__scs_bridge_provider__:{ns}:{m}"),
-                                                "references",
-                                                meta,
-                                            ));
-                                        }
-                                    }
-                                    "pair" => {
-                                        if let Some(k) = item.child_by_field_name("key") {
-                                            let m = get_text(&k, source).trim();
-                                            if !m.is_empty() {
-                                                let mut meta = HashMap::new();
-                                                meta.insert(
-                                                    "reference_kind".to_string(),
-                                                    json!("bridge_provider"),
-                                                );
-                                                meta.insert(
-                                                    "bridge_namespace".to_string(),
-                                                    json!(ns),
-                                                );
-                                                meta.insert("bridge_member".to_string(), json!(m));
-                                                if let Some(v) = item.child_by_field_name("value") {
-                                                    if v.kind() == "identifier" {
-                                                        meta.insert(
-                                                            "handler_symbol".to_string(),
-                                                            json!(get_text(&v, source).trim()),
-                                                        );
-                                                    }
-                                                }
-                                                meta.insert(
-                                                    "start_line".to_string(),
-                                                    json!(item.start_position().row),
-                                                );
-                                                meta.insert(
-                                                    "end_line".to_string(),
-                                                    json!(item.end_position().row),
-                                                );
-                                                meta.insert(
-                                                    "enclosing_symbol".to_string(),
-                                                    json!(enclosing_qname),
-                                                );
-                                                edges.push(ParsedEdge::with_metadata(
-                                                    enclosing_qname.to_string(),
-                                                    format!("__scs_bridge_provider__:{ns}:{m}"),
-                                                    "references",
-                                                    meta,
-                                                ));
-                                            }
-                                        }
-                                    }
-                                    _ => {}
-                                }
+                            let mut meta = HashMap::new();
+                            meta.insert("reference_kind".to_string(), json!("bridge_provider"));
+                            meta.insert("bridge_namespace".to_string(), json!("window"));
+                            meta.insert("bridge_member".to_string(), json!(prop_name));
+                            meta.insert(
+                                "start_line".to_string(),
+                                json!(node.start_position().row),
+                            );
+                            meta.insert(
+                                "end_line".to_string(),
+                                json!(node.end_position().row),
+                            );
+                            meta.insert(
+                                "enclosing_symbol".to_string(),
+                                json!(enclosing_qname),
+                            );
+                            if right.kind() == "identifier" {
+                                meta.insert(
+                                    "handler_symbol".to_string(),
+                                    json!(get_text(&right, source).trim()),
+                                );
+                            } else if matches!(
+                                right.kind(),
+                                "arrow_function" | "function_expression" | "generator_function"
+                            ) {
+                                meta.insert("handler_symbol".to_string(), json!(prop_name));
+                            }
+                            edges.push(ParsedEdge::with_metadata(
+                                enclosing_qname.to_string(),
+                                format!("__scs_bridge_provider__:window:{prop_name}"),
+                                "references",
+                                meta,
+                            ));
+                            if right.kind() == "object" {
+                                let ns = format!("window.{prop_name}");
+                                emit_global_object_providers(
+                                    &ns,
+                                    right,
+                                    source,
+                                    enclosing_qname,
+                                    edges,
+                                    false,
+                                );
                             }
                         }
                     }
@@ -1082,6 +1255,46 @@ fn extract_ts_http_and_bridges(
                 }
             }
         }
+        "member_expression" => {
+            let parent = node.parent();
+            let is_assignment_lhs = parent.is_some_and(|p| {
+                p.kind() == "assignment_expression"
+                    && p.child_by_field_name("left") == Some(*node)
+            });
+            let is_call_callee = parent.is_some_and(|p| {
+                p.kind() == "call_expression"
+                    && p.child_by_field_name("function")
+                        .is_some_and(|f| unwrap_ts_expr(f) == *node)
+            });
+            let is_outer_member_obj = parent.is_some_and(|p| {
+                p.kind() == "member_expression"
+                    && p.child_by_field_name("object")
+                        .is_some_and(|o| unwrap_ts_expr(o) == *node)
+            });
+            if !is_assignment_lhs && !is_call_callee && !is_outer_member_obj {
+                if let (Some(obj), Some(prop)) = (
+                    node.child_by_field_name("object"),
+                    node.child_by_field_name("property"),
+                ) {
+                    let prop_name = get_text(&prop, source).trim();
+                    if let Some(ns) = extract_global_namespace_node(obj, source, global_aliases) {
+                        if !prop_name.is_empty() {
+                            emit_bridge_caller_edge(enclosing_qname, &ns, prop_name, node, edges);
+                        }
+                    } else if is_global_root_node(obj, source, global_aliases)
+                        && is_custom_global_prop(prop_name)
+                    {
+                        emit_bridge_caller_edge(
+                            enclosing_qname,
+                            "window",
+                            prop_name,
+                            node,
+                            edges,
+                        );
+                    }
+                }
+            }
+        }
         _ => {}
     }
 }
@@ -1161,6 +1374,7 @@ fn extract_body_references(
     enclosing_qname: &str,
     edges: &mut Vec<ParsedEdge>,
     skip_named_decls: bool,
+    global_aliases: &HashSet<String>,
 ) {
     let blocklist: HashSet<&str> = TS_BUILTIN_CALLS.iter().copied().collect();
     if !skip_named_decls {
@@ -1270,7 +1484,7 @@ fn extract_body_references(
             ) {
                 collect_type_references_in_type_node(n, source, None, &mut type_sites);
             }
-            extract_ts_http_and_bridges(&n, source, enclosing_qname, edges);
+            extract_ts_http_and_bridges(&n, source, enclosing_qname, edges, global_aliases);
 
             if cursor.goto_first_child() {
                 continue;
@@ -1589,6 +1803,11 @@ impl TypeScriptParser {
             let n = cursor.node();
             if let Some(import_path) = extract_module_import_call(&n, source) {
                 self.emit_import(n, &import_path, module_name, entities, edges);
+            } else if let Some(asset_path) = extract_url_import_meta(&n, source) {
+                let mut meta = HashMap::new();
+                meta.insert("reference_kind".to_string(), json!("imports_asset"));
+                meta.insert("wildcard_import".to_string(), json!(true));
+                self.emit_import_with_metadata(n, &asset_path, module_name, entities, edges, meta);
             }
 
             if cursor.node() == root {
@@ -1626,13 +1845,177 @@ impl TypeScriptParser {
         entities: &mut Vec<ParsedEntity>,
         edges: &mut Vec<ParsedEdge>,
         scope_stack: &[String],
+        global_aliases: &HashSet<String>,
     ) {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            self.walk_node(child, source, module_name, entities, edges, scope_stack);
+            self.walk_node(
+                child,
+                source,
+                module_name,
+                entities,
+                edges,
+                scope_stack,
+                global_aliases,
+            );
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn walk_iife_body(
+        &self,
+        body: Node,
+        source: &[u8],
+        module_name: &str,
+        entities: &mut Vec<ParsedEntity>,
+        edges: &mut Vec<ParsedEdge>,
+        scope_stack: &[String],
+        outer_aliases: &HashSet<String>,
+        iife_aliases: &HashSet<String>,
+    ) {
+        let mut merged = outer_aliases.clone();
+        merged.extend(iife_aliases.iter().cloned());
+        let mut cursor = body.walk();
+        for stmt in body.children(&mut cursor) {
+            match stmt.kind() {
+                "function_declaration"
+                | "generator_function_declaration"
+                | "class_declaration"
+                | "lexical_declaration"
+                | "variable_declaration"
+                | "assignment_expression"
+                | "expression_statement" => {
+                    self.walk_node(
+                        stmt,
+                        source,
+                        module_name,
+                        entities,
+                        edges,
+                        scope_stack,
+                        &merged,
+                    );
+                }
+                "if_statement" | "try_statement" | "for_statement" | "for_in_statement"
+                | "while_statement" | "do_statement" | "switch_statement" => {
+                    extract_body_references(
+                        stmt,
+                        source,
+                        &self.language_name,
+                        module_name,
+                        edges,
+                        true,
+                        &merged,
+                    );
+                    self.extract_module_imports_in_subtree(
+                        stmt,
+                        source,
+                        module_name,
+                        entities,
+                        edges,
+                    );
+                    self.walk_iife_control_blocks(
+                        stmt,
+                        source,
+                        module_name,
+                        entities,
+                        edges,
+                        scope_stack,
+                        &merged,
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn walk_iife_control_blocks(
+        &self,
+        node: Node,
+        source: &[u8],
+        module_name: &str,
+        entities: &mut Vec<ParsedEntity>,
+        edges: &mut Vec<ParsedEdge>,
+        scope_stack: &[String],
+        global_aliases: &HashSet<String>,
+    ) {
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            match child.kind() {
+                "function_declaration" | "generator_function_declaration" => {
+                    self.handle_function(
+                        child,
+                        source,
+                        module_name,
+                        entities,
+                        edges,
+                        scope_stack,
+                        global_aliases,
+                    );
+                }
+                "class_declaration" => {
+                    self.handle_class(
+                        child,
+                        source,
+                        module_name,
+                        entities,
+                        edges,
+                        scope_stack,
+                        global_aliases,
+                    );
+                }
+                "lexical_declaration" | "variable_declaration" => {
+                    self.handle_variable(
+                        child,
+                        source,
+                        module_name,
+                        entities,
+                        edges,
+                        scope_stack,
+                        global_aliases,
+                    );
+                }
+                "expression_statement" => {
+                    if let Some(expr) = child.named_child(0) {
+                        if expr.kind() == "assignment_expression"
+                            && expr.child_by_field_name("right").is_some_and(|r| {
+                                matches!(
+                                    r.kind(),
+                                    "arrow_function" | "function_expression" | "generator_function"
+                                )
+                            })
+                        {
+                            self.handle_assignment(
+                                expr,
+                                source,
+                                module_name,
+                                entities,
+                                edges,
+                                scope_stack,
+                                global_aliases,
+                            );
+                        }
+                    }
+                }
+                "statement_block" | "else_clause" | "catch_clause" | "finally_clause"
+                | "switch_body" | "switch_case" | "switch_default" | "if_statement"
+                | "try_statement" => {
+                    self.walk_iife_control_blocks(
+                        child,
+                        source,
+                        module_name,
+                        entities,
+                        edges,
+                        scope_stack,
+                        global_aliases,
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn walk_node(
         &self,
         child: Node,
@@ -1641,13 +2024,51 @@ impl TypeScriptParser {
         entities: &mut Vec<ParsedEntity>,
         edges: &mut Vec<ParsedEdge>,
         scope_stack: &[String],
+        global_aliases: &HashSet<String>,
     ) {
+        if scope_stack.len() == 1
+            && matches!(
+                child.kind(),
+                "call_expression" | "unary_expression" | "parenthesized_expression"
+            )
+        {
+            if let Some((iife_body, iife_aliases)) = extract_top_level_iife(child, source) {
+                self.walk_iife_body(
+                    iife_body,
+                    source,
+                    module_name,
+                    entities,
+                    edges,
+                    scope_stack,
+                    global_aliases,
+                    &iife_aliases,
+                );
+                return;
+            }
+        }
+
         match child.kind() {
             "class_declaration" => {
-                self.handle_class(child, source, module_name, entities, edges, scope_stack);
+                self.handle_class(
+                    child,
+                    source,
+                    module_name,
+                    entities,
+                    edges,
+                    scope_stack,
+                    global_aliases,
+                );
             }
             "function_declaration" | "generator_function_declaration" => {
-                self.handle_function(child, source, module_name, entities, edges, scope_stack);
+                self.handle_function(
+                    child,
+                    source,
+                    module_name,
+                    entities,
+                    edges,
+                    scope_stack,
+                    global_aliases,
+                );
             }
             "interface_declaration" | "type_alias_declaration" => {
                 self.handle_type_declaration(
@@ -1663,10 +2084,60 @@ impl TypeScriptParser {
                 self.handle_import(child, source, module_name, entities, edges);
             }
             "lexical_declaration" | "variable_declaration" => {
-                self.handle_variable(child, source, module_name, entities, edges, scope_stack);
+                self.handle_variable(
+                    child,
+                    source,
+                    module_name,
+                    entities,
+                    edges,
+                    scope_stack,
+                    global_aliases,
+                );
             }
             "assignment_expression" if scope_stack.len() == 1 => {
-                self.handle_assignment(child, source, module_name, entities, edges, scope_stack);
+                self.handle_assignment(
+                    child,
+                    source,
+                    module_name,
+                    entities,
+                    edges,
+                    scope_stack,
+                    global_aliases,
+                );
+            }
+            "new_expression" => {
+                if let Some(asset_path) = extract_url_import_meta(&child, source) {
+                    let mut meta = HashMap::new();
+                    meta.insert("reference_kind".to_string(), json!("imports_asset"));
+                    meta.insert("wildcard_import".to_string(), json!(true));
+                    self.emit_import_with_metadata(
+                        child,
+                        &asset_path,
+                        module_name,
+                        entities,
+                        edges,
+                        meta,
+                    );
+                } else {
+                    extract_body_references(
+                        child,
+                        source,
+                        &self.language_name,
+                        module_name,
+                        edges,
+                        true,
+                        global_aliases,
+                    );
+                    self.walk(
+                        child,
+                        source,
+                        module_name,
+                        entities,
+                        edges,
+                        scope_stack,
+                        global_aliases,
+                    );
+                }
             }
             "call_expression" => {
                 if let Some(import_path) = extract_module_import_call(&child, source) {
@@ -1689,13 +2160,30 @@ impl TypeScriptParser {
                         module_name,
                         edges,
                         true,
+                        global_aliases,
                     );
                     if let Some(func) = child.child_by_field_name("function") {
-                        self.walk_node(func, source, module_name, entities, edges, scope_stack);
+                        self.walk_node(
+                            func,
+                            source,
+                            module_name,
+                            entities,
+                            edges,
+                            scope_stack,
+                            global_aliases,
+                        );
                     }
                 }
                 if let Some(args) = child.child_by_field_name("arguments") {
-                    self.walk(args, source, module_name, entities, edges, scope_stack);
+                    self.walk(
+                        args,
+                        source,
+                        module_name,
+                        entities,
+                        edges,
+                        scope_stack,
+                        global_aliases,
+                    );
                 }
             }
             "arrow_function" | "function_expression" | "generator_function" => {
@@ -1714,6 +2202,7 @@ impl TypeScriptParser {
                         module_name,
                         edges,
                         true,
+                        global_aliases,
                     );
                 }
             }
@@ -1734,14 +2223,44 @@ impl TypeScriptParser {
                     self.maybe_emit_default_export(child, source, module_name, edges);
                 }
                 // Unwrap export and process the inner declaration.
-                self.walk(child, source, module_name, entities, edges, scope_stack);
+                self.walk(
+                    child,
+                    source,
+                    module_name,
+                    entities,
+                    edges,
+                    scope_stack,
+                    global_aliases,
+                );
             }
             "method_definition" | "public_field_definition" => {
-                self.handle_method(child, source, module_name, entities, edges, scope_stack);
+                self.handle_method(
+                    child,
+                    source,
+                    module_name,
+                    entities,
+                    edges,
+                    scope_stack,
+                    global_aliases,
+                );
             }
-            "pair" => {
-                extract_ts_http_and_bridges(&child, source, module_name, edges);
-                self.walk(child, source, module_name, entities, edges, scope_stack);
+            "pair" | "member_expression" => {
+                extract_ts_http_and_bridges(
+                    &child,
+                    source,
+                    module_name,
+                    edges,
+                    global_aliases,
+                );
+                self.walk(
+                    child,
+                    source,
+                    module_name,
+                    entities,
+                    edges,
+                    scope_stack,
+                    global_aliases,
+                );
             }
             _ => {
                 // Don't recurse into function bodies.
@@ -1749,12 +2268,21 @@ impl TypeScriptParser {
                     && child.kind() != "statement_block"
                     && child.kind() != "function_body"
                 {
-                    self.walk(child, source, module_name, entities, edges, scope_stack);
+                    self.walk(
+                        child,
+                        source,
+                        module_name,
+                        entities,
+                        edges,
+                        scope_stack,
+                        global_aliases,
+                    );
                 }
             }
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn handle_class(
         &self,
         node: Node,
@@ -1763,6 +2291,7 @@ impl TypeScriptParser {
         entities: &mut Vec<ParsedEntity>,
         edges: &mut Vec<ParsedEdge>,
         scope_stack: &[String],
+        global_aliases: &HashSet<String>,
     ) {
         let mut name = String::new();
         let mut cursor = node.walk();
@@ -1906,7 +2435,15 @@ impl TypeScriptParser {
         if let Some(body) = find_child_by_kind(&node, "class_body") {
             let mut new_scope = scope_stack.to_vec();
             new_scope.push(name);
-            self.walk(body, source, module_name, entities, edges, &new_scope);
+            self.walk(
+                body,
+                source,
+                module_name,
+                entities,
+                edges,
+                &new_scope,
+                global_aliases,
+            );
         }
     }
 
@@ -1921,6 +2458,7 @@ impl TypeScriptParser {
         entities: &mut Vec<ParsedEntity>,
         edges: &mut Vec<ParsedEdge>,
         scope_stack: &[String],
+        global_aliases: &HashSet<String>,
     ) {
         if name.is_empty() {
             return;
@@ -1958,11 +2496,20 @@ impl TypeScriptParser {
 
         emit_signature_type_references(&fn_node, source, &qualified, edges);
         if let Some(body) = fn_node.child_by_field_name("body") {
-            extract_body_references(body, source, &self.language_name, &qualified, edges, false);
+            extract_body_references(
+                body,
+                source,
+                &self.language_name,
+                &qualified,
+                edges,
+                false,
+                global_aliases,
+            );
             self.extract_module_imports_in_subtree(body, source, module_name, entities, edges);
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn handle_function(
         &self,
         node: Node,
@@ -1971,6 +2518,7 @@ impl TypeScriptParser {
         entities: &mut Vec<ParsedEntity>,
         edges: &mut Vec<ParsedEdge>,
         scope_stack: &[String],
+        global_aliases: &HashSet<String>,
     ) {
         let mut name = String::new();
         let mut cursor = node.walk();
@@ -2020,11 +2568,20 @@ impl TypeScriptParser {
         emit_signature_type_references(&node, source, &qualified, edges);
         // CALLS, JSX renders, type references, HTTP & bridge descriptors, and lazy imports.
         if let Some(body) = find_child_by_kind(&node, "statement_block") {
-            extract_body_references(body, source, &self.language_name, &qualified, edges, false);
+            extract_body_references(
+                body,
+                source,
+                &self.language_name,
+                &qualified,
+                edges,
+                false,
+                global_aliases,
+            );
             self.extract_module_imports_in_subtree(body, source, module_name, entities, edges);
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn handle_method(
         &self,
         node: Node,
@@ -2033,6 +2590,7 @@ impl TypeScriptParser {
         entities: &mut Vec<ParsedEntity>,
         edges: &mut Vec<ParsedEdge>,
         scope_stack: &[String],
+        global_aliases: &HashSet<String>,
     ) {
         let mut name = String::new();
         let mut cursor = node.walk();
@@ -2061,6 +2619,7 @@ impl TypeScriptParser {
                         entities,
                         edges,
                         scope_stack,
+                        global_aliases,
                     );
                     return;
                 }
@@ -2103,7 +2662,15 @@ impl TypeScriptParser {
         emit_signature_type_references(&node, source, &qualified, edges);
         // CALLS, JSX renders, type references, HTTP & bridge descriptors, and lazy imports.
         if let Some(body) = find_child_by_kind(&node, "statement_block") {
-            extract_body_references(body, source, &self.language_name, &qualified, edges, false);
+            extract_body_references(
+                body,
+                source,
+                &self.language_name,
+                &qualified,
+                edges,
+                false,
+                global_aliases,
+            );
             self.extract_module_imports_in_subtree(body, source, module_name, entities, edges);
         }
     }
@@ -2336,7 +2903,7 @@ impl TypeScriptParser {
         }
     }
 
-    #[allow(clippy::ptr_arg)] // Signature mirrors walk() callback pattern.
+    #[allow(clippy::ptr_arg, clippy::too_many_arguments)]
     fn handle_variable(
         &self,
         node: Node,
@@ -2345,6 +2912,7 @@ impl TypeScriptParser {
         entities: &mut Vec<ParsedEntity>,
         edges: &mut Vec<ParsedEdge>,
         scope_stack: &[String],
+        global_aliases: &HashSet<String>,
     ) {
         // Only extract top-level declarations.
         if scope_stack.len() > 1 {
@@ -2372,6 +2940,7 @@ impl TypeScriptParser {
                 }
             }
 
+            let mut handled_iife: Option<(Node, HashSet<String>)> = None;
             if let Some(val) = value_node {
                 if matches!(
                     val.kind(),
@@ -2387,6 +2956,7 @@ impl TypeScriptParser {
                             entities,
                             edges,
                             scope_stack,
+                            global_aliases,
                         );
                     } else {
                         extract_body_references(
@@ -2396,6 +2966,7 @@ impl TypeScriptParser {
                             module_name,
                             edges,
                             true,
+                            global_aliases,
                         );
                         self.extract_module_imports_in_subtree(
                             val,
@@ -2408,7 +2979,9 @@ impl TypeScriptParser {
                     continue;
                 }
 
-                if let Some(spec) = extract_module_import_call(&val, source) {
+                if let Some((iife_body, iife_aliases)) = extract_top_level_iife(val, source) {
+                    handled_iife = Some((iife_body, iife_aliases));
+                } else if let Some(spec) = extract_module_import_call(&val, source) {
                     let mut meta = HashMap::new();
                     if let Some(pat) = name_node.filter(|n| n.kind() == "object_pattern") {
                         let (bindings, imported_symbols, wildcard) =
@@ -2461,6 +3034,7 @@ impl TypeScriptParser {
                         module_name,
                         edges,
                         true,
+                        global_aliases,
                     );
                     self.extract_module_imports_in_subtree(
                         val,
@@ -2472,45 +3046,57 @@ impl TypeScriptParser {
                 }
             }
 
-            if ident_name.len() < 2 {
-                continue;
+            if ident_name.len() >= 2 {
+                let qualified = format!("{}.{ident_name}", scope_stack.join("."));
+                let raw = get_text(&child, source);
+                let kind = if is_constant_name(&ident_name) {
+                    NodeType::Constant
+                } else {
+                    NodeType::Variable
+                };
+
+                entities.push(ParsedEntity {
+                    kind,
+                    name: ident_name,
+                    qualified_name: qualified.clone(),
+                    start_line: child.start_position().row,
+                    end_line: child.end_position().row,
+                    signature: super::truncate_str(raw, super::RAW_TEXT_SMALL_LIMIT).to_string(),
+                    raw_text: super::truncate_str(raw, super::RAW_TEXT_SMALL_LIMIT).to_string(),
+                    parent_qualified_name: Some(scope_stack.join(".")),
+                    docstring: String::new(),
+                    bases: Vec::new(),
+                    imports: Vec::new(),
+                    cyclomatic_complexity: None,
+                });
+
+                // CONTAINS edge from parent scope — connects the
+                // variable/constant to its module so it appears in
+                // graph traversals. Without this, these nodes are
+                // orphans with zero edges (audit issue #5).
+                edges.push(ParsedEdge::new(
+                    scope_stack.join("."),
+                    qualified,
+                    "contains",
+                ));
             }
 
-            let qualified = format!("{}.{ident_name}", scope_stack.join("."));
-            let raw = get_text(&child, source);
-            let kind = if is_constant_name(&ident_name) {
-                NodeType::Constant
-            } else {
-                NodeType::Variable
-            };
-
-            entities.push(ParsedEntity {
-                kind,
-                name: ident_name,
-                qualified_name: qualified.clone(),
-                start_line: child.start_position().row,
-                end_line: child.end_position().row,
-                signature: super::truncate_str(raw, super::RAW_TEXT_SMALL_LIMIT).to_string(),
-                raw_text: super::truncate_str(raw, super::RAW_TEXT_SMALL_LIMIT).to_string(),
-                parent_qualified_name: Some(scope_stack.join(".")),
-                docstring: String::new(),
-                bases: Vec::new(),
-                imports: Vec::new(),
-                cyclomatic_complexity: None,
-            });
-
-            // CONTAINS edge from parent scope — connects the
-            // variable/constant to its module so it appears in
-            // graph traversals. Without this, these nodes are
-            // orphans with zero edges (audit issue #5).
-            edges.push(ParsedEdge::new(
-                scope_stack.join("."),
-                qualified,
-                "contains",
-            ));
+            if let Some((iife_body, iife_aliases)) = handled_iife {
+                self.walk_iife_body(
+                    iife_body,
+                    source,
+                    module_name,
+                    entities,
+                    edges,
+                    scope_stack,
+                    global_aliases,
+                    &iife_aliases,
+                );
+            }
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn handle_assignment(
         &self,
         node: Node,
@@ -2519,6 +3105,7 @@ impl TypeScriptParser {
         entities: &mut Vec<ParsedEntity>,
         edges: &mut Vec<ParsedEdge>,
         scope_stack: &[String],
+        global_aliases: &HashSet<String>,
     ) {
         let Some(left) = node.child_by_field_name("left") else {
             return;
@@ -2543,6 +3130,7 @@ impl TypeScriptParser {
                         entities,
                         edges,
                         scope_stack,
+                        global_aliases,
                     );
                     return;
                 }
@@ -2578,7 +3166,15 @@ impl TypeScriptParser {
                     ));
                 }
 
-                self.walk_node(right, source, module_name, entities, edges, scope_stack);
+                self.walk_node(
+                    right,
+                    source,
+                    module_name,
+                    entities,
+                    edges,
+                    scope_stack,
+                    global_aliases,
+                );
             }
             Some(None) => {
                 if right.kind() == "object" {
@@ -2610,12 +3206,21 @@ impl TypeScriptParser {
                                         entities,
                                         edges,
                                         scope_stack,
+                                        global_aliases,
                                     );
                                     continue;
                                 }
                             }
                         }
-                        self.walk_node(item, source, module_name, entities, edges, scope_stack);
+                        self.walk_node(
+                            item,
+                            source,
+                            module_name,
+                            entities,
+                            edges,
+                            scope_stack,
+                            global_aliases,
+                        );
                     }
                 } else if matches!(right.kind(), "function_expression" | "generator_function") {
                     let fn_name = right
@@ -2634,6 +3239,7 @@ impl TypeScriptParser {
                             entities,
                             edges,
                             scope_stack,
+                            global_aliases,
                         );
                     } else if let Some(body) = right.child_by_field_name("body") {
                         self.extract_module_imports_in_subtree(
@@ -2645,12 +3251,64 @@ impl TypeScriptParser {
                         );
                     }
                 } else {
-                    self.walk_node(right, source, module_name, entities, edges, scope_stack);
+                    self.walk_node(
+                        right,
+                        source,
+                        module_name,
+                        entities,
+                        edges,
+                        scope_stack,
+                        global_aliases,
+                    );
                 }
             }
             None => {
-                extract_ts_http_and_bridges(&node, source, module_name, edges);
-                self.walk_node(right, source, module_name, entities, edges, scope_stack);
+                extract_ts_http_and_bridges(
+                    &node,
+                    source,
+                    module_name,
+                    edges,
+                    global_aliases,
+                );
+                if left.kind() == "member_expression"
+                    && matches!(
+                        right.kind(),
+                        "arrow_function" | "function_expression" | "generator_function"
+                    )
+                {
+                    if let (Some(obj), Some(prop)) = (
+                        left.child_by_field_name("object"),
+                        left.child_by_field_name("property"),
+                    ) {
+                        let prop_name = get_text(&prop, source).trim();
+                        if is_global_root_node(obj, source, global_aliases)
+                            && is_custom_global_prop(prop_name)
+                        {
+                            let doc_node = node.parent().unwrap_or(node);
+                            self.handle_function_value(
+                                prop_name.to_string(),
+                                right,
+                                doc_node,
+                                source,
+                                module_name,
+                                entities,
+                                edges,
+                                scope_stack,
+                                global_aliases,
+                            );
+                            return;
+                        }
+                    }
+                }
+                self.walk_node(
+                    right,
+                    source,
+                    module_name,
+                    entities,
+                    edges,
+                    scope_stack,
+                    global_aliases,
+                );
             }
         }
     }
@@ -2695,6 +3353,7 @@ impl LanguageParser for TypeScriptParser {
         });
 
         let scope_stack = vec![module_name.clone()];
+        let global_aliases = HashSet::new();
         self.walk(
             tree.root_node(),
             source_bytes,
@@ -2702,6 +3361,7 @@ impl LanguageParser for TypeScriptParser {
             &mut entities,
             &mut edges,
             &scope_stack,
+            &global_aliases,
         );
 
         (entities, edges)
@@ -3252,6 +3912,104 @@ export default {
                 && e.metadata.get("bridge_namespace") == Some(&json!("commands"))
                 && e.metadata.get("bridge_member") == Some(&json!("*"))
                 && e.metadata.get("target_specifier") == Some(&json!("./commands.cjs"))
+        }));
+    }
+
+    #[test]
+    fn extracts_iife_symbols_two_segment_globals_and_url_asset_imports() {
+        let parser = TypeScriptParser::new("javascript");
+        let source = r#"
+(function (global) {
+    function initPanel(id) {
+        return id;
+    }
+    const renderRow = (row) => row;
+    global.__psVendor = { initPanel, renderRow };
+    window.__psDoor = initPanel;
+    window.__psOpen = function (flag) { return flag; };
+    Object.assign(window, { __psApi: initPanel });
+})(window);
+
+!function () {
+    function helper() {}
+}();
+
+const PanelMod = (function () {
+    function mountPanel() {}
+    return { mountPanel };
+})();
+
+const doorRef = window.__psDoor;
+window.__psOpen(true);
+const legacyUrl = new URL('./legacy.js', import.meta.url);
+window.location.reload();
+"#;
+        let (entities, edges) = parser.parse(source, "panels/vendor-invoices-panel.js");
+        let fn_names: Vec<&str> = entities
+            .iter()
+            .filter(|e| e.kind == NodeType::Function)
+            .map(|e| e.name.as_str())
+            .collect();
+        assert!(fn_names.contains(&"initPanel"), "missing initPanel: {fn_names:?}");
+        assert!(fn_names.contains(&"renderRow"), "missing renderRow: {fn_names:?}");
+        assert!(fn_names.contains(&"__psOpen"), "missing __psOpen: {fn_names:?}");
+        assert!(fn_names.contains(&"helper"), "missing helper: {fn_names:?}");
+        assert!(fn_names.contains(&"mountPanel"), "missing mountPanel: {fn_names:?}");
+        assert!(entities.iter().any(|e| e.name == "PanelMod"));
+
+        // 2-segment & 3-segment providers (global alias + Object.assign + window function)
+        assert!(edges.iter().any(|e| {
+            e.metadata.get("reference_kind") == Some(&json!("bridge_provider"))
+                && e.metadata.get("bridge_namespace") == Some(&json!("window"))
+                && e.metadata.get("bridge_member") == Some(&json!("__psVendor"))
+        }));
+        assert!(edges.iter().any(|e| {
+            e.metadata.get("reference_kind") == Some(&json!("bridge_provider"))
+                && e.metadata.get("bridge_namespace") == Some(&json!("window.__psVendor"))
+                && e.metadata.get("bridge_member") == Some(&json!("initPanel"))
+                && e.metadata.get("handler_symbol") == Some(&json!("initPanel"))
+        }));
+        assert!(edges.iter().any(|e| {
+            e.metadata.get("reference_kind") == Some(&json!("bridge_provider"))
+                && e.metadata.get("bridge_namespace") == Some(&json!("window"))
+                && e.metadata.get("bridge_member") == Some(&json!("__psDoor"))
+                && e.metadata.get("handler_symbol") == Some(&json!("initPanel"))
+        }));
+        assert!(edges.iter().any(|e| {
+            e.metadata.get("reference_kind") == Some(&json!("bridge_provider"))
+                && e.metadata.get("bridge_namespace") == Some(&json!("window"))
+                && e.metadata.get("bridge_member") == Some(&json!("__psOpen"))
+                && e.metadata.get("handler_symbol") == Some(&json!("__psOpen"))
+        }));
+        assert!(edges.iter().any(|e| {
+            e.metadata.get("reference_kind") == Some(&json!("bridge_provider"))
+                && e.metadata.get("bridge_namespace") == Some(&json!("window"))
+                && e.metadata.get("bridge_member") == Some(&json!("__psApi"))
+        }));
+
+        // 2-segment property read and direct call
+        assert!(edges.iter().any(|e| {
+            e.metadata.get("reference_kind") == Some(&json!("bridge_caller"))
+                && e.metadata.get("bridge_namespace") == Some(&json!("window"))
+                && e.metadata.get("bridge_member") == Some(&json!("__psDoor"))
+        }));
+        assert!(edges.iter().any(|e| {
+            e.metadata.get("reference_kind") == Some(&json!("bridge_caller"))
+                && e.metadata.get("bridge_namespace") == Some(&json!("window"))
+                && e.metadata.get("bridge_member") == Some(&json!("__psOpen"))
+        }));
+
+        // Built-in window.location is filtered out
+        assert!(!edges.iter().any(|e| {
+            e.metadata.get("bridge_namespace") == Some(&json!("window.location"))
+                || e.metadata.get("bridge_member") == Some(&json!("location"))
+        }));
+
+        // new URL('./legacy.js', import.meta.url) asset import
+        assert!(edges.iter().any(|e| {
+            e.relationship == "imports"
+                && e.target_qualified_name == "./legacy.js"
+                && e.metadata.get("reference_kind") == Some(&json!("imports_asset"))
         }));
     }
 }

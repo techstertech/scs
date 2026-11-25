@@ -12,6 +12,7 @@ from urllib.parse import unquote, urlsplit
 from scs.source_paths import validated_source_path
 
 MAX_DOCUMENT_BYTES = 65_536
+MAX_SOURCE_SCAN_BYTES = 524_288
 MAX_SCAN_BYTES = 2_097_152
 MAX_SCAN_FILES = 128
 MAX_CONTENT_CHARACTERS = 2_048
@@ -78,6 +79,33 @@ def collect_contracts(
             gaps.append({"file_path": path, "reason": "unreadable"})
         return cache[path]
 
+    def read_source(path: str) -> str | None:
+        nonlocal consumed, truncated
+        if path in cache:
+            return cache[path]
+        if len(cache) >= MAX_SCAN_FILES or consumed >= MAX_SCAN_BYTES:
+            truncated = True
+            return None
+        cache[path] = None
+        try:
+            safe = Path(validated_source_path(path, str(root), require_file=False))
+            if not safe.is_file():
+                raise OSError("not a regular file")
+            with safe.open("rb") as stream:
+                data = stream.read(MAX_SOURCE_SCAN_BYTES + 1)
+            slice_bytes = data[:MAX_SOURCE_SCAN_BYTES]
+            consumed += len(slice_bytes)
+            if len(data) > MAX_SOURCE_SCAN_BYTES:
+                truncated = True
+                cache[path] = slice_bytes.decode("utf-8", errors="ignore")
+            else:
+                cache[path] = slice_bytes.decode("utf-8")
+        except ValueError:
+            gaps.append({"file_path": path, "reason": "unsafe_path"})
+        except (OSError, UnicodeError):
+            gaps.append({"file_path": path, "reason": "unreadable"})
+        return cache[path]
+
     selected: dict[str, list[dict[str, object]]] = {
         path: [{"kind": "caller_selected", "file_path": path}] for path in explicit
     }
@@ -94,7 +122,7 @@ def collect_contracts(
         return found
 
     for source in sources:
-        text = read(source)
+        text = read_source(source)
         if text is None:
             continue
         for target, line in links(source, text):

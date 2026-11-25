@@ -7,12 +7,12 @@ from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from scs.graph.models import SYMBOL_NODE_TYPES, Node, RelationshipType
+from scs.graph.models import SYMBOL_NODE_TYPES, Edge, Node, RelationshipType
 from scs.graph.native import NativeGraph
 
 MAX_REVIEW_NODES = 400
 MAX_REVIEW_EDGES = 2_000
-REVIEW_DEPTH = 2
+REVIEW_DEPTH = 3
 DEPENDENCY_RELATIONSHIPS = frozenset({
     RelationshipType.CALLS, RelationshipType.IMPORTS, RelationshipType.REFERENCES,
     RelationshipType.INHERITS, RelationshipType.IMPLEMENTS,
@@ -95,21 +95,52 @@ def changed_symbol_impact(
     paths: dict[str, list[dict[str, object]]] = {key: [] for key in sorted(seeds)}
     frontier = list(paths)
     edge_count = 0
-    for _ in range(REVIEW_DEPTH):
+    for hop_idx in range(REVIEW_DEPTH):
         batches = graph.batch_get_edges_sync(frontier, direction="incoming") if frontier else {}
+        owner_map: dict[str, str] = {}
+        owner_batches: dict[str, list[Edge]] = {}
+        if hop_idx >= 1 and frontier:
+            frontier_nodes = graph.batch_get_nodes_sync(frontier)
+            non_file_ids = {
+                node.id
+                for node in frontier_nodes
+                if node.type.value != "file"
+            }
+            for target in frontier:
+                if target not in non_file_ids:
+                    continue
+                for edge in batches.get(target, []):
+                    if (
+                        edge.relationship is RelationshipType.CONTAINS
+                        and edge.target_id == target
+                        and edge.source_id != target
+                    ):
+                        owner_map[target] = edge.source_id
+                        break
+            if owner_map:
+                owner_batches = graph.batch_get_edges_sync(
+                    sorted(set(owner_map.values())), direction="incoming"
+                )
         following: list[str] = []
         for target in frontier:
-            for edge in sorted(batches.get(target, []), key=lambda item: (item.source_id, item.relationship)):
-                if edge.relationship not in DEPENDENCY_RELATIONSHIPS or edge.target_id != target:
+            candidate_edges = list(batches.get(target, []))
+            owner_fid = owner_map.get(target)
+            if owner_fid is not None:
+                for owner_edge in owner_batches.get(owner_fid, []):
+                    if owner_edge not in candidate_edges:
+                        candidate_edges.append(owner_edge)
+            for edge in sorted(candidate_edges, key=lambda item: (item.source_id, item.relationship)):
+                expected_target = target if edge.target_id == target else owner_fid
+                if edge.relationship not in DEPENDENCY_RELATIONSHIPS or edge.target_id != expected_target:
                     continue
                 edge_count += 1
                 if edge_count > MAX_REVIEW_EDGES or len(paths) >= MAX_REVIEW_NODES:
                     bounded = True
                     break
-                if edge.source_id in paths:
+                if edge.source_id in paths or edge.source_id == expected_target:
                     continue
                 step: dict[str, object] = {
-                    "dependent_node_id": edge.source_id, "affected_node_id": target,
+                    "dependent_node_id": edge.source_id, "affected_node_id": expected_target,
                     "relationship": edge.relationship.value,
                 }
                 for meta_key in (

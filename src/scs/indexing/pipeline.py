@@ -27,7 +27,9 @@ from scs.indexing.js_ts_imports import (
 )
 from scs.indexing.symbol_edges import (
     CROSS_BOUNDARY_REFERENCE_KINDS,
+    STRUCTURAL_EDGE_SCHEMA_VERSION,
     extract_file_descriptors,
+    extract_html_script_edges,
     reconcile_cross_boundary_edges,
     resolve_structural_edges,
 )
@@ -389,6 +391,29 @@ class IngestionPipeline:
             if self._embeddings is not None
             else set()
         )
+        stale_parser_paths: set[str] = set()
+        if hashes:
+            offset = 0
+            page_size = 500
+            while True:
+                file_nodes = self._graph.list_nodes_sync(
+                    node_type=NodeType.FILE,
+                    limit=page_size,
+                    offset=offset,
+                    repo_id=repo_id,
+                )
+                for fnode in file_nodes:
+                    rel = fnode.metadata.get("file_path")
+                    if (
+                        isinstance(rel, str)
+                        and rel in hashes
+                        and fnode.metadata.get("parser_version")
+                        != STRUCTURAL_EDGE_SCHEMA_VERSION
+                    ):
+                        stale_parser_paths.add(rel)
+                if len(file_nodes) < page_size:
+                    break
+                offset += len(file_nodes)
         changed = [
             entry
             for entry in entries
@@ -397,6 +422,13 @@ class IngestionPipeline:
             or (
                 entry.rel_path in languages
                 and languages[entry.rel_path] != entry.language
+            )
+            or (
+                entry.rel_path in stale_parser_paths
+                and (
+                    entry.language != "text"
+                    or entry.rel_path.lower().endswith((".html", ".htm"))
+                )
             )
             or entry.rel_path in missing_embedding_paths
         ]
@@ -589,7 +621,11 @@ class IngestionPipeline:
                         raw_text=source,
                     )
                 ]
-                edges: list[ParsedEdge] = []
+                edges = (
+                    extract_html_script_edges(source, entry.rel_path)
+                    if entry.rel_path.lower().endswith((".html", ".htm"))
+                    else []
+                )
             else:
                 entities, edges = self._parser.parse(source, entry.rel_path)
             return _ParsedFile(entry, entities, edges)
@@ -652,8 +688,14 @@ class IngestionPipeline:
                 ):
                     if value not in (None, "", []):
                         metadata[key] = value
-                if entity.kind is NodeType.FILE and descriptors:
-                    metadata.update(descriptors)
+                if entity.kind is NodeType.FILE:
+                    if (
+                        item.entry.language != "text"
+                        or item.entry.rel_path.lower().endswith((".html", ".htm"))
+                    ):
+                        metadata["parser_version"] = STRUCTURAL_EDGE_SCHEMA_VERSION
+                    if descriptors:
+                        metadata.update(descriptors)
                 nodes.append(
                     {
                         "id": node_id,
@@ -844,7 +886,7 @@ class IngestionPipeline:
 
         lookup_fn = resolve or _default_resolve
 
-        candidate_pairs: dict[tuple[str, str], None] = {}
+        candidate_pairs: dict[tuple[str, str], tuple[int, int] | None] = {}
         offset = 0
         page_size = 5_000
         while True:
@@ -873,7 +915,22 @@ class IngestionPipeline:
                     alias_configs=resolved_aliases,
                 )
                 if target_id is not None and target_id != source_file_id:
-                    candidate_pairs[(source_file_id, target_id)] = None
+                    start_line = node.metadata.get("start_line")
+                    end_line = node.metadata.get("end_line")
+                    span: tuple[int, int] | None = (
+                        (
+                            start_line,
+                            end_line if type(end_line) is int else start_line,
+                        )
+                        if type(start_line) is int
+                        else None
+                    )
+                    pair = (source_file_id, target_id)
+                    prev = candidate_pairs.get(pair)
+                    if pair not in candidate_pairs or (
+                        span is not None and (prev is None or span < prev)
+                    ):
+                        candidate_pairs[pair] = span
             if len(import_nodes) < page_size:
                 break
             offset += len(import_nodes)
@@ -892,16 +949,23 @@ class IngestionPipeline:
                     if edge.relationship is RelationshipType.IMPORTS:
                         existing_pairs.add((source_id, edge.target_id))
 
-        missing_edges: list[dict[str, object]] = [
-            {
+        missing_edges: list[dict[str, object]] = []
+        for (source_id, target_id), span in candidate_pairs.items():
+            if (source_id, target_id) in existing_pairs:
+                continue
+            edge_dict: dict[str, object] = {
                 "source_id": source_id,
                 "target_id": target_id,
                 "relationship": RelationshipType.IMPORTS.value,
                 "weight": 1.0,
             }
-            for source_id, target_id in candidate_pairs
-            if (source_id, target_id) not in existing_pairs
-        ]
+            if span is not None:
+                edge_dict["metadata"] = {
+                    "reference_kind": "imports",
+                    "start_line": span[0],
+                    "end_line": span[1],
+                }
+            missing_edges.append(edge_dict)
         if not missing_edges:
             return 0
         self._graph.batch_upsert_edges_sync(missing_edges)

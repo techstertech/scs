@@ -85,3 +85,14 @@ def test_explicit_roots_keep_read_budget_and_follow_supersession(tmp_path: Path)
     assert result['contracts'][0]['file_path'] == 'current.md'
     assert result['contracts'][0]['active'] is True
     assert result['truncated'] is True
+
+
+def test_large_code_sources_do_not_trigger_oversized_contract_gaps(tmp_path: Path) -> None:
+    (tmp_path / 'asset-management-door.js').write_text('x' * 75_000, encoding='utf-8')
+    (tmp_path / 'spec.md').write_text('y' * 70_000, encoding='utf-8')
+
+    source_result = collect_contracts(tmp_path, ['asset-management-door.js'], [], limit=10)
+    assert source_result['gaps'] == []
+
+    doc_result = collect_contracts(tmp_path, [], ['spec.md'], limit=10)
+    assert doc_result['gaps'] == [{'file_path': 'spec.md', 'reason': 'oversized'}]

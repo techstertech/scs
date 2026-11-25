@@ -27,9 +27,17 @@ from scs.indexing.search import (
     CodeSearchService,
     SearchMode,
 )
+from scs.indexing.symbol_edges import STRUCTURAL_EDGE_SCHEMA_VERSION
 from scs.providers.base import EmbeddingProvider, RerankingProvider
 from scs.source_paths import validated_source_path
-from scs.services.impact import ChangedRange, changed_symbol_impact, is_test_path
+from scs.services.impact import (
+    MAX_REVIEW_EDGES,
+    MAX_REVIEW_NODES,
+    REVIEW_DEPTH,
+    ChangedRange,
+    changed_symbol_impact,
+    is_test_path,
+)
 
 GraphForRepository = Callable[[str], NativeGraph | None]
 BindingForRepository = Callable[[str], tuple[str, str] | None]
@@ -1139,6 +1147,21 @@ class SCSServiceRoutes:
                         continue
                     if hashes.get(rel) != digest:
                         dirty.append(str(target))
+                    else:
+                        fids = graph.get_node_ids_for_file_sync(canonical, rel)
+                        if fids:
+                            fnodes = graph.batch_get_nodes_sync(fids[:50])
+                            for fnode in fnodes:
+                                if fnode.type is NodeType.FILE and (
+                                    fnode.metadata.get("language") != "text"
+                                    or rel.lower().endswith((".html", ".htm"))
+                                ):
+                                    if (
+                                        fnode.metadata.get("parser_version")
+                                        != STRUCTURAL_EDGE_SCHEMA_VERSION
+                                    ):
+                                        dirty.append(str(target))
+                                    break
                 elif rel in hashes:
                     deleted.append(rel)
             return dirty, deleted
@@ -1249,63 +1272,130 @@ class SCSServiceRoutes:
             )
         affected_ids = list(dict.fromkeys(affected_ids))
         file_lookup_ms = _elapsed_ms(lookup_started)
-        edge_started = perf_counter()
-        edges = (
-            await asyncio.to_thread(
-                graph.batch_get_edges_sync,
-                affected_ids,
-                direction="incoming",
-            )
-            if affected_ids
-            else {}
-        )
-        edge_traversal_ms = _elapsed_ms(edge_started)
         affected_id_set = set(affected_ids)
-        relevant_edges = sorted(
-            {
-                (edge.source_id, edge.target_id, edge.relationship): edge
-                for values in edges.values()
-                for edge in values
-                if edge.target_id in affected_id_set
-                and edge.source_id not in affected_id_set
-                and edge.relationship in DEPENDENCY_RELATIONSHIPS
-            }.values(),
-            key=lambda edge: (edge.source_id, edge.target_id, edge.relationship),
-        )
-        dependent_ids = sorted({edge.source_id for edge in relevant_edges})
-        capped_dependent_ids = dependent_ids[:MAX_REGRESSION_RISK_LIMIT]
+        edge_started = perf_counter()
+        paths: dict[str, list[dict[str, object]]] = {
+            aid: [] for aid in sorted(affected_id_set)
+        }
+        frontier = list(paths)
+        edge_count = 0
+        bounded = False
+        for hop_idx in range(REVIEW_DEPTH):
+            batches = (
+                await asyncio.to_thread(
+                    graph.batch_get_edges_sync, frontier, direction="incoming"
+                )
+                if frontier
+                else {}
+            )
+            owner_map: dict[str, str] = {}
+            owner_batches: dict[str, list[Edge]] = {}
+            if hop_idx >= 1 and frontier:
+                frontier_nodes = await asyncio.to_thread(
+                    graph.batch_get_nodes_sync, frontier
+                )
+                non_file_ids = {
+                    node.id
+                    for node in frontier_nodes
+                    if node.type is not NodeType.FILE
+                }
+                for target in frontier:
+                    if target not in non_file_ids:
+                        continue
+                    for edge in batches.get(target, []):
+                        if (
+                            edge.relationship is RelationshipType.CONTAINS
+                            and edge.target_id == target
+                            and edge.source_id != target
+                        ):
+                            owner_map[target] = edge.source_id
+                            break
+                if owner_map:
+                    owner_batches = await asyncio.to_thread(
+                        graph.batch_get_edges_sync,
+                        sorted(set(owner_map.values())),
+                        direction="incoming",
+                    )
+            following: list[str] = []
+            for target in frontier:
+                candidate_edges = list(batches.get(target, []))
+                owner_fid = owner_map.get(target)
+                if owner_fid is not None:
+                    for owner_edge in owner_batches.get(owner_fid, []):
+                        if owner_edge not in candidate_edges:
+                            candidate_edges.append(owner_edge)
+                for edge in sorted(
+                    candidate_edges,
+                    key=lambda item: (item.source_id, item.relationship),
+                ):
+                    expected_target = target if edge.target_id == target else owner_fid
+                    if (
+                        edge.relationship not in DEPENDENCY_RELATIONSHIPS
+                        or edge.target_id != expected_target
+                    ):
+                        continue
+                    edge_count += 1
+                    if edge_count > MAX_REVIEW_EDGES or len(paths) >= MAX_REVIEW_NODES:
+                        bounded = True
+                        break
+                    if edge.source_id in paths or edge.source_id == expected_target:
+                        continue
+                    step: dict[str, object] = {
+                        "dependent_node_id": edge.source_id,
+                        "affected_node_id": expected_target,
+                        "relationship": edge.relationship.value,
+                    }
+                    for meta_key in (
+                        "start_line",
+                        "end_line",
+                        "reference_kind",
+                        "enclosing_symbol",
+                        "via_barrel",
+                    ):
+                        val = edge.metadata.get(meta_key)
+                        if val is not None:
+                            step[meta_key] = val
+                    paths[edge.source_id] = [*paths[target], step]
+                    following.append(edge.source_id)
+            frontier = following
+        edge_traversal_ms = _elapsed_ms(edge_started)
+
+        dependent_ids = sorted(set(paths) - affected_id_set)
+        capped_dependent_ids = dependent_ids[:MAX_REVIEW_NODES]
+        bounded |= len(dependent_ids) > MAX_REVIEW_NODES
         hydration_started = perf_counter()
-        all_hydrated = await asyncio.to_thread(
-            graph.batch_get_nodes_sync,
-            capped_dependent_ids,
+        all_hydrated = (
+            await asyncio.to_thread(graph.batch_get_nodes_sync, capped_dependent_ids)
+            if capped_dependent_ids
+            else []
         )
         node_hydration_ms = _elapsed_ms(hydration_started)
         projection_started = perf_counter()
-        evidence_by_dependent: dict[str, list[dict[str, object]]] = {}
-        for edge in relevant_edges:
-            ev: dict[str, object] = {
-                "dependent_node_id": edge.source_id,
-                "affected_node_id": edge.target_id,
-                "relationship": edge.relationship,
-            }
-            for meta_key in (
-                "start_line",
-                "end_line",
-                "reference_kind",
-                "enclosing_symbol",
-                "via_barrel",
-            ):
-                val = edge.metadata.get(meta_key)
-                if val is not None:
-                    ev[meta_key] = val
-            evidence_by_dependent.setdefault(edge.source_id, []).append(ev)
+        dep_files = {
+            node.id: str(node.metadata.get("file_path", "")) for node in all_hydrated
+        }
+        for chain in paths.values():
+            for step in chain:
+                dep_id = step.get("dependent_node_id")
+                if (
+                    isinstance(dep_id, str)
+                    and dep_id in dep_files
+                    and dep_files[dep_id]
+                ):
+                    step.setdefault("file_path", dep_files[dep_id])
 
-        def _dependent_rank(node: Node) -> tuple[int, str, str]:
-            evs = evidence_by_dependent.get(node.id, [])
-            only_imports = bool(evs) and all(
-                e.get("relationship") == RelationshipType.IMPORTS.value for e in evs
+        def _dependent_rank(node: Node) -> tuple[int, int, str, str]:
+            chain = paths[node.id]
+            only_imports = bool(chain) and all(
+                step.get("relationship") == RelationshipType.IMPORTS.value
+                for step in chain
             )
-            return (1 if only_imports else 0, str(node.metadata.get("file_path", "")), node.id)
+            return (
+                len(chain),
+                1 if only_imports else 0,
+                str(node.metadata.get("file_path", "")),
+                node.id,
+            )
 
         ranked_dependents = sorted(all_hydrated, key=_dependent_rank)
         dependents = ranked_dependents[:dependent_limit]
@@ -1326,22 +1416,34 @@ class SCSServiceRoutes:
             {
                 "file_path": path,
                 "evidence": [
-                    evidence
+                    {
+                        k: v
+                        for k, v in paths[node.id][0].items()
+                        if k != "file_path"
+                    }
+                    if len(paths[node.id]) == 1
+                    else {
+                        "dependent_node_id": node.id,
+                        "dependency_path": paths[node.id],
+                    }
                     for node in test_dependents
                     if str(node.metadata.get("file_path")) == path
-                    for evidence in evidence_by_dependent.get(node.id, [])
                 ],
             }
             for path in selected_test_paths
         ]
         projection_ms = _elapsed_ms(projection_started)
-        dependents_truncated = len(dependent_ids) > len(dependents)
-        test_targets_truncated = len(test_target_paths) > len(selected_test_paths)
+        dependents_truncated = len(dependent_ids) > len(dependents) or bounded
+        test_targets_truncated = len(test_target_paths) > len(selected_test_paths) or bounded
         return {
             "file_paths": raw_paths,
             "affected_node_ids": affected_ids,
             "dependents": [_node_dict(node) for node in dependents],
             "test_dependents": [_node_dict(node) for node in test_dependents],
+            "dependency_paths": [
+                {"dependent_node_id": node.id, "path": paths[node.id]}
+                for node in dependents
+            ],
             "total_dependents": len(dependent_ids),
             "dependents_truncated": dependents_truncated,
             "test_targets": test_targets,

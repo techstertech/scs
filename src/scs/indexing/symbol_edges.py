@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 import json
 import posixpath
+import re
 from typing import Protocol, cast
 
 from scs.graph.models import Edge, Node, NodeType, RelationshipType, SYMBOL_NODE_TYPES
@@ -15,10 +16,24 @@ from scs.indexing.js_ts_imports import (
 )
 from scs.indexing.parser.base import ParsedEdge, ParsedEntity
 
+STRUCTURAL_EDGE_SCHEMA_VERSION = 2
 MAX_REEXPORT_DEPTH = 5
 MAX_SITES_PER_EDGE = 16
 MAX_FILE_DESCRIPTORS = 200
 MAX_BRIDGE_FILES = 10_000
+
+_HTML_SCRIPT_SRC_RE = re.compile(
+    r"""<script\b[^>]*\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)')""",
+    re.IGNORECASE,
+)
+_EXTERNAL_URL_PREFIXES = (
+    "http://",
+    "https://",
+    "//",
+    "data:",
+    "blob:",
+    "javascript:",
+)
 
 DESCRIPTOR_REFERENCE_KINDS: frozenset[str] = frozenset(
     {
@@ -39,12 +54,14 @@ _REFERENCE_PRIORITY: dict[str, int] = {
     "imports_default": 3,
     "http_route": 4,
     "rpc_bridge": 5,
-    "extends": 6,
-    "implements": 7,
-    "type_references": 8,
-    "reexports": 9,
-    "imports_namespace": 10,
-    "imports_side_effect": 11,
+    "script_src": 6,
+    "imports_asset": 7,
+    "extends": 8,
+    "implements": 9,
+    "type_references": 10,
+    "reexports": 11,
+    "imports_namespace": 12,
+    "imports_side_effect": 13,
 }
 
 
@@ -85,6 +102,42 @@ class SymbolEdgeGraph(Protocol):
         self, node_ids: list[str], *, direction: str = "both"
     ) -> dict[str, list[Edge]]: ...
     def batch_upsert_edges_sync(self, edges: list[dict[str, object]]) -> int: ...
+
+
+def extract_html_script_edges(source: str, rel_path: str) -> list[ParsedEdge]:
+    """Extract bounded local `<script src="...">` import edges from HTML files."""
+
+    edges: list[ParsedEdge] = []
+    seen: set[tuple[str, int]] = set()
+    for match in _HTML_SCRIPT_SRC_RE.finditer(source):
+        if len(edges) >= MAX_FILE_DESCRIPTORS:
+            break
+        raw_src = (match.group(1) or match.group(2) or "").strip()
+        if not raw_src:
+            continue
+        lower_src = raw_src.lower()
+        if lower_src.startswith(_EXTERNAL_URL_PREFIXES):
+            continue
+        line_no = source.count("\n", 0, match.start())
+        key = (raw_src, line_no)
+        if key in seen:
+            continue
+        seen.add(key)
+        edges.append(
+            ParsedEdge(
+                source_qualified_name=rel_path,
+                target_qualified_name=raw_src,
+                relationship=RelationshipType.IMPORTS,
+                metadata={
+                    "reference_kind": "script_src",
+                    "start_line": line_no,
+                    "end_line": line_no,
+                    "enclosing_symbol": rel_path,
+                    "wildcard_import": True,
+                },
+            )
+        )
+    return edges
 
 
 def extract_file_descriptors(
@@ -687,7 +740,10 @@ def resolve_structural_edges(
                     target = _resolve_python_module_node(
                         rel_path, edge.target_qualified_name, resolve
                     )
-            elif target is None and item.entry.language in JS_TS_LANGUAGES:
+            elif target is None and (
+                item.entry.language in JS_TS_LANGUAGES
+                or edge.metadata.get("reference_kind") == "script_src"
+            ):
                 target = resolve_js_ts_target(
                     rel_path,
                     edge.target_qualified_name,
@@ -696,6 +752,28 @@ def resolve_structural_edges(
                     lower_file_nodes_by_path=lower_file_nodes_by_path,
                     alias_configs=alias_configs,
                 )
+                if (
+                    target is None
+                    and edge.metadata.get("reference_kind") == "script_src"
+                    and file_nodes_by_path is not None
+                ):
+                    cleaned = (
+                        edge.target_qualified_name.split("?", 1)[0]
+                        .split("#", 1)[0]
+                        .strip()
+                        .lstrip("/")
+                        .lstrip("./")
+                    )
+                    if cleaned:
+                        suffix = f"/{cleaned.lower()}"
+                        exact_lower = cleaned.lower()
+                        hits = [
+                            fid
+                            for path, fid in file_nodes_by_path.items()
+                            if path.lower() == exact_lower or path.lower().endswith(suffix)
+                        ]
+                        if len(hits) == 1:
+                            target = hits[0]
 
             if not source:
                 continue
@@ -1199,6 +1277,12 @@ def reconcile_cross_boundary_edges(
         for _prov_file, _prov_desc, sym_map in expanded_wild.get(ns, []):
             if member in sym_map:
                 matched_targets.append(sym_map[member])
+        if not matched_targets and ns.startswith("window."):
+            head_member = ns.removeprefix("window.")
+            for prov_file, prov_desc in bridge_providers_exact.get(
+                ("window", head_member), []
+            ):
+                matched_targets.append(resolve_handler_node(prov_file, prov_desc))
 
         for target_id in dict.fromkeys(matched_targets):
             record_cross_edge(source_id, target_id, dict(edge_meta))

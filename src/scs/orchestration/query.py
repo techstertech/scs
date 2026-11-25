@@ -53,6 +53,8 @@ _REF_KIND_TIER: dict[str, int] = {
     "type_references": 1,
     "http_route": 1,
     "rpc_bridge": 1,
+    "script_src": 2,
+    "imports_asset": 2,
     "imports_namespace": 2,
     "reexports": 2,
     "imports_side_effect": 3,
@@ -606,6 +608,23 @@ class QueryOrchestrator:
                         node = item
                     edge_start = item.get("start_line")
                     edge_end = item.get("end_line")
+                    raw_node_meta = node.get("metadata")
+                    node_meta = (
+                        cast(dict[str, object], raw_node_meta)
+                        if isinstance(raw_node_meta, dict)
+                        else {}
+                    )
+                    is_non_file = node.get("type") != NodeType.FILE.value
+                    fallback_start = (
+                        node.get("start_line", node_meta.get("start_line"))
+                        if is_non_file
+                        else node.get("start_line")
+                    )
+                    fallback_end = (
+                        node.get("end_line", node_meta.get("end_line"))
+                        if is_non_file
+                        else node.get("end_line")
+                    )
                     rel_value = (
                         edge_type.value if edge_type else item.get("relationship")
                     )
@@ -617,8 +636,8 @@ class QueryOrchestrator:
                         "relationship": rel_value,
                         "direction": item.get("direction", "incoming" if incoming else "both"),
                         "file_path": self._file_path(node),
-                        "start_line": edge_start if type(edge_start) is int else node.get("start_line"),
-                        "end_line": edge_end if type(edge_end) is int else node.get("end_line"),
+                        "start_line": edge_start if type(edge_start) is int else fallback_start,
+                        "end_line": edge_end if type(edge_end) is int else fallback_end,
                         "stage": stage_name,
                     }
                     has_edge_meta = any(
@@ -859,18 +878,48 @@ class QueryOrchestrator:
             trace.append({"stage": "execution", "status": "timeout", "counts": {},
                           "truncated": True, "elapsed_ms": (perf_counter() - started) * 1_000})
 
-        # Deduplicate files preferring entries that retain an explicit file node ID.
-        dedup_files: dict[tuple[str, str, str], dict[str, object]] = {}
+        # Deduplicate evidence["files"] by file_path, merging repeated
+        # unresolved_range hunks so one file does not crowd out the limit bucket.
+        dedup_by_path: dict[str, dict[str, object]] = {}
+        ranges_by_path: dict[str, list[tuple[int, int]]] = {}
+        other_files: dict[tuple[str, str], dict[str, object]] = {}
         for item in evidence["files"]:
-            fkey = (
-                str(item.get("kind", "")),
-                str(item.get("file_path", "")),
-                str(item.get("start_line", "")),
-            )
-            prev = dedup_files.get(fkey)
-            if prev is None or (prev.get("id") is None and item.get("id") is not None):
-                dedup_files[fkey] = item
-        evidence["files"] = list(dedup_files.values())
+            fp = item.get("file_path")
+            if not isinstance(fp, str) or not fp:
+                other_files[(str(item.get("kind", "")), str(item.get("id", "")))] = item
+                continue
+            if item.get("kind") == "unresolved_range":
+                s_line = item.get("start_line")
+                e_line = item.get("end_line")
+                if type(s_line) is int and type(e_line) is int:
+                    ranges_by_path.setdefault(fp, []).append((s_line, e_line))
+            prev = dedup_by_path.get(fp)
+            if prev is None:
+                dedup_by_path[fp] = dict(item)
+            elif prev.get("kind") != "file" and item.get("kind") == "file":
+                dedup_by_path[fp] = dict(item)
+            elif prev.get("id") is None and item.get("id") is not None:
+                dedup_by_path[fp] = dict(item)
+
+        merged_files: list[dict[str, object]] = []
+        for fp, entry in dedup_by_path.items():
+            raw_ranges = ranges_by_path.get(fp)
+            if raw_ranges:
+                unique_ranges = sorted(set(raw_ranges))[:16]
+                if entry.get("kind") == "unresolved_range":
+                    entry["start_line"] = unique_ranges[0][0]
+                    entry["end_line"] = unique_ranges[0][1]
+                    if len(unique_ranges) > 1:
+                        entry["ranges"] = [
+                            {"start_line": s, "end_line": e} for s, e in unique_ranges
+                        ]
+                elif entry.get("kind") == "file":
+                    entry["unresolved_ranges"] = [
+                        {"start_line": s, "end_line": e} for s, e in unique_ranges
+                    ]
+            merged_files.append(entry)
+        merged_files.extend(other_files.values())
+        evidence["files"] = merged_files
 
         for category, items in evidence.items():
             if category == "files":

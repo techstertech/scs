@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -732,4 +733,56 @@ async def test_diff_impact_on_clean_git_repo_records_empty_impact(tmp_path: Path
     assert stages["git_diff"]["status"] == "ok"
     assert stages["git_diff"]["counts"] == {"ranges": 0, "files": 0}
     assert stages["impact"]["counts"] == {"dependents": 0, "test_targets": 0}
+
+
+@pytest.mark.asyncio
+async def test_evidence_files_deduplicates_repeated_unresolved_ranges_before_limit(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "docs" / "api").mkdir(parents=True)
+    (tmp_path / "docs" / "api" / "frontend-calls.json").write_text("{}\n", encoding="utf-8")
+
+    async def fake_call(method: str, _params: dict[str, object]) -> dict[str, object]:
+        assert method == "knowledge.composite.regression_risk"
+        return {
+            "affected_node_ids": [],
+            "changed_symbols": [],
+            "dependents": [],
+            "dependency_paths": [],
+            "test_targets": [],
+            "unresolved_ranges": [
+                {"file_path": "docs/api/frontend-calls.json", "start_line": i * 10, "end_line": i * 10 + 3}
+                for i in range(5)
+            ]
+            + [
+                {"file_path": "src/a.ts", "start_line": 1, "end_line": 2},
+                {"file_path": "src/b.ts", "start_line": 3, "end_line": 4},
+            ],
+        }
+
+    query = QueryOrchestrator(provider=FixedProvider(Playbook.IMPACT), call=fake_call)
+    result = await query.query(
+        {
+            "goal": "Diff impact",
+            "repo_path": str(tmp_path),
+            "playbook": "IMPACT",
+            "changed_ranges": [
+                {"file_path": "docs/api/frontend-calls.json", "start_line": 0, "end_line": 3},
+                {"file_path": "src/a.ts", "start_line": 1, "end_line": 2},
+                {"file_path": "src/b.ts", "start_line": 3, "end_line": 4},
+            ],
+            "limit": 3,
+        }
+    )
+
+    files = result["evidence"]["files"]
+    assert len(files) == 3
+    json_entries = [f for f in files if f.get("file_path") == "docs/api/frontend-calls.json"]
+    assert len(json_entries) == 1
+    assert len(cast(list[object], json_entries[0]["ranges"])) == 5
+    assert {f.get("file_path") for f in files} == {
+        "docs/api/frontend-calls.json",
+        "src/a.ts",
+        "src/b.ts",
+    }
 

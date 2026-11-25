@@ -351,7 +351,27 @@ def _candidate_targets_for_specifier(
         return [normalized] if normalized is not None else []
 
     if cleaned.startswith("/"):
-        return []
+        rel = cleaned.lstrip("/")
+        if not rel:
+            return []
+        root_candidates: list[str] = []
+        cur = posixpath.dirname(rel_path)
+        while True:
+            for base in (
+                cur,
+                f"{cur}/public" if cur else "public",
+                f"{cur}/static" if cur else "static",
+            ):
+                normalized = _normalize_repo_path(base, rel)
+                if normalized is not None:
+                    root_candidates.append(normalized)
+            if not cur or cur == ".":
+                break
+            parent = posixpath.dirname(cur)
+            if parent == cur:
+                break
+            cur = parent
+        return list(dict.fromkeys(root_candidates))
 
     candidates: list[str] = []
     for cfg in _matching_alias_configs(rel_path, alias_configs):
