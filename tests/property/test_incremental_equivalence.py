@@ -6,7 +6,7 @@ from pathlib import Path
 
 from hypothesis import given, settings, strategies as st
 
-from scs.graph.models import Edge, NodeType, RelationshipType
+from scs.graph.models import Edge, Node, NodeType, RelationshipType
 from scs.indexing.parser.base import ParsedEdge, ParsedEntity
 from scs.indexing.pipeline import IngestionPipeline
 
@@ -39,6 +39,34 @@ class Graph:
 
     def resolve_repo_id_sync(self, path):
         return self.repos.get(path)
+
+    def get_file_node_map_sync(self, repo_id):
+        return {
+            str(node["name"]): str(node_id)
+            for node_id, node in self.nodes.items()
+            if node.get("repo_id") == repo_id and node.get("type") == NodeType.FILE.value
+        }
+
+    def list_nodes_sync(self, *, node_type=None, limit=100, offset=0, repo_id=None):
+        items = [
+            Node.model_validate(node)
+            for node in self.nodes.values()
+            if (node_type is None or node.get("type") == node_type.value)
+            and (repo_id is None or node.get("repo_id") == repo_id)
+        ]
+        return items[offset : offset + limit]
+
+    def batch_get_edges_sync(self, node_ids, *, direction="both"):
+        return {
+            node_id: [
+                Edge.model_validate({"id": "fake", **edge})
+                for edge in self.edges
+                if (direction == "both" and node_id in {edge["source_id"], edge["target_id"]})
+                or (direction == "incoming" and edge["target_id"] == node_id)
+                or (direction == "outgoing" and edge["source_id"] == node_id)
+            ]
+            for node_id in node_ids
+        }
 
     def get_ingestion_stats_sync(self):
         return {path: {} for path in self.repos}

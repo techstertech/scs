@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import posixpath
 from collections.abc import Callable, Coroutine, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -18,7 +17,13 @@ from scs.indexing.discovery import (
     build_file_entry,
     discover,
 )
-from scs.graph.models import Edge, NodeType, RelationshipType
+from scs.graph.models import Edge, Node, NodeType, RelationshipType
+from scs.indexing.js_ts_imports import (
+    JS_TS_LANGUAGES as _JS_TS_LANGUAGES,
+    JS_TS_SUFFIXES as _JS_TS_SUFFIXES,
+    load_js_ts_alias_configs,
+    resolve_js_ts_import_target as _resolve_js_ts_import_target,
+)
 from scs.indexing.parser.base import LanguageParser, ParsedEdge, ParsedEntity
 from scs.indexing.repository_paths import (
     assert_ingestable_repo_path,
@@ -33,22 +38,6 @@ PARSE_WORKERS = 4
 EMBED_BATCH_SIZE = 128
 INGESTION_BATCH_MAX_FILES = 32
 INGESTION_BATCH_MAX_ENTITIES = 512
-_JS_TS_LANGUAGES: frozenset[str] = frozenset(
-    {"javascript", "typescript", "jsx", "tsx"}
-)
-_JS_TS_SUFFIXES: tuple[str, ...] = (
-    ".ts",
-    ".tsx",
-    ".mts",
-    ".cts",
-    ".js",
-    ".jsx",
-    ".mjs",
-    ".cjs",
-    ".mjsx",
-    ".es6",
-    ".jsm",
-)
 T = TypeVar("T")
 
 
@@ -61,6 +50,7 @@ class GraphStore(Protocol):
 
     def get_or_create_repo_sync(self, path: str) -> int: ...
     def resolve_repo_id_sync(self, path: str) -> int | None: ...
+    def get_file_node_map_sync(self, repo_id: int) -> dict[str, str]: ...
     def get_all_ingested_files_sync(self, repo_path: str) -> dict[str, str]: ...
     def get_all_ingested_file_languages_sync(self, repo_path: str) -> dict[str, str]: ...
     def get_file_paths_for_repo_sync(self, repo_path: str) -> list[str]: ...
@@ -73,11 +63,22 @@ class GraphStore(Protocol):
     def resolve_node_id_by_qualified_name_sync(
         self, repo_path: str, qualified_name: str
     ) -> str | None: ...
+    def list_nodes_sync(
+        self,
+        *,
+        node_type: NodeType | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        repo_id: int | None = None,
+    ) -> list[Node]: ...
     def batch_upsert_nodes_sync(self, nodes: list[dict[str, object]]) -> int: ...
     def batch_upsert_edges_sync(self, edges: list[dict[str, object]]) -> int: ...
     def get_edges_sync(
         self, node_id: str, *, direction: str = "both"
     ) -> list[Edge]: ...
+    def batch_get_edges_sync(
+        self, node_ids: list[str], *, direction: str = "both"
+    ) -> dict[str, list[Edge]]: ...
     def batch_upsert_embeddings_sync(
         self, embeddings: list[tuple[str, list[float]]]
     ) -> int: ...
@@ -189,46 +190,6 @@ def _node_id(
 
 def _file_record_id(repo_path: str, rel_path: str) -> str:
     return hashlib.sha256(f"file:{repo_path}:{rel_path}".encode()).hexdigest()[:32]
-
-
-def _resolve_js_ts_import_target(
-    rel_path: str,
-    specifier: str,
-    resolve: Callable[[str], str | None],
-) -> str | None:
-    """Resolve a relative JS/TS module or asset specifier against indexed nodes."""
-
-    cleaned = specifier.split("?", 1)[0].split("#", 1)[0]
-    if not (
-        cleaned in {".", ".."}
-        or cleaned.startswith("./")
-        or cleaned.startswith("../")
-    ):
-        return None
-    normalized = posixpath.normpath(posixpath.join(posixpath.dirname(rel_path), cleaned))
-    if normalized == ".." or normalized.startswith("../") or normalized.startswith("/"):
-        return None
-
-    lower_normalized = normalized.lower()
-    matched_suffix = next(
-        (suffix for suffix in _JS_TS_SUFFIXES if lower_normalized.endswith(suffix)),
-        None,
-    )
-    candidates: list[str]
-    if matched_suffix is not None:
-        stem = normalized[: -len(matched_suffix)]
-        candidates = [stem.replace("/", "."), normalized]
-    elif normalized == ".":
-        candidates = ["index"]
-    else:
-        dotted = normalized.replace("/", ".")
-        candidates = [normalized, dotted, f"{dotted}.index"]
-
-    for candidate in dict.fromkeys(candidates):
-        target = resolve(candidate)
-        if target is not None:
-            return target
-    return None
 
 
 class IngestionPipeline:
@@ -444,6 +405,9 @@ class IngestionPipeline:
             )
 
         if not changed:
+            result.edges_created += self._reconcile_js_ts_import_edges(
+                repo_path, repo_id
+            )
             return result
 
         self._check_cancelled()
@@ -475,6 +439,7 @@ class IngestionPipeline:
             else 0
         )
         result.edges_dropped = sum(len(item.edges) for item in parsed) - len(plan.edges)
+        result.edges_created += self._reconcile_js_ts_import_edges(repo_path, repo_id)
 
         batches = self._plan_batches(plan.parsed)
         for batch_number, batch in enumerate(batches, start=1):
@@ -638,9 +603,12 @@ class IngestionPipeline:
     ) -> _StructuralPlan:
         nodes: list[dict[str, object]] = []
         qualified_to_id: dict[str, str] = {}
+        file_qnames: dict[str, dict[str, str]] = {}
         entity_node_ids: dict[tuple[str, int], str] = {}
+        planned_file_nodes: dict[str, str] = {}
         replaced_ids: set[str] = set()
         for item in parsed:
+            local_qnames = file_qnames.setdefault(item.entry.rel_path, {})
             occurrences: dict[tuple[NodeType, str], int] = {}
             for position, entity in enumerate(item.entities):
                 identity = (entity.kind, entity.qualified_name)
@@ -648,7 +616,10 @@ class IngestionPipeline:
                 occurrences[identity] = occurrence + 1
                 node_id = _node_id(repo_path, item.entry.rel_path, entity, occurrence)
                 qualified_to_id[entity.qualified_name] = node_id
+                local_qnames[entity.qualified_name] = node_id
                 entity_node_ids[(item.entry.rel_path, position)] = node_id
+                if entity.kind is NodeType.FILE:
+                    planned_file_nodes[item.entry.rel_path] = node_id
                 metadata: dict[str, object] = {
                     "file_path": item.entry.rel_path,
                     "language": item.entry.language,
@@ -679,7 +650,15 @@ class IngestionPipeline:
             replaced_ids.update(
                 self._graph.get_node_ids_for_file_sync(repo_path, item.entry.rel_path)
             )
-        edges = self._prepare_edges(repo_path, parsed, qualified_to_id)
+        edges = self._prepare_edges(
+            repo_path,
+            parsed,
+            qualified_to_id,
+            repo_id=repo_id,
+            replaced_ids=replaced_ids,
+            planned_file_nodes=planned_file_nodes,
+            file_qnames=file_qnames,
+        )
         return _StructuralPlan(
             parsed=tuple(sorted(parsed, key=lambda item: item.entry.rel_path)),
             nodes=nodes,
@@ -694,6 +673,11 @@ class IngestionPipeline:
         repo_path: str,
         parsed: list[_ParsedFile],
         qualified_to_id: dict[str, str],
+        *,
+        repo_id: int | None = None,
+        replaced_ids: set[str] | None = None,
+        planned_file_nodes: Mapping[str, str] | None = None,
+        file_qnames: Mapping[str, Mapping[str, str]] | None = None,
     ) -> list[dict[str, object]]:
         edges: list[dict[str, object]] = []
         seen: set[tuple[str, str, str]] = set()
@@ -713,14 +697,47 @@ class IngestionPipeline:
                 )
             return retained_ids[qualified_name]
 
+        has_js_ts = any(item.entry.language in _JS_TS_LANGUAGES for item in parsed)
+        if has_js_ts and repo_id is not None:
+            superseded = replaced_ids or set()
+            file_nodes_by_path = {
+                path: node_id
+                for path, node_id in self._graph.get_file_node_map_sync(repo_id).items()
+                if node_id not in superseded
+            }
+            if planned_file_nodes:
+                file_nodes_by_path.update(planned_file_nodes)
+            lower_file_nodes_by_path = {
+                path.lower(): node_id for path, node_id in file_nodes_by_path.items()
+            }
+            alias_configs = load_js_ts_alias_configs(
+                Path(repo_path), file_nodes_by_path.keys()
+            )
+        else:
+            file_nodes_by_path = dict(planned_file_nodes) if planned_file_nodes else None
+            lower_file_nodes_by_path = (
+                {path.lower(): node_id for path, node_id in file_nodes_by_path.items()}
+                if file_nodes_by_path is not None
+                else None
+            )
+            alias_configs = (
+                load_js_ts_alias_configs(Path(repo_path), ())
+                if has_js_ts
+                else ()
+            )
+
         for item in parsed:
+            local_qnames = (file_qnames or {}).get(item.entry.rel_path, {})
             for edge in item.edges:
-                # A changed endpoint is resolved from the immutable structural
-                # plan; an unchanged endpoint is resolved from the retained,
-                # repository-scoped graph.  This preserves changed-file edges
-                # that target a file outside the current structural plan.
-                source = resolve(edge.source_qualified_name)
-                target = resolve(edge.target_qualified_name)
+                # Prefer entities declared in the same parsed file first so
+                # sibling stems (e.g., Button.css and Button.tsx) never attach
+                # intra-file CONTAINS/CALLS edges onto the wrong file node.
+                source = local_qnames.get(edge.source_qualified_name) or resolve(
+                    edge.source_qualified_name
+                )
+                target = local_qnames.get(edge.target_qualified_name) or resolve(
+                    edge.target_qualified_name
+                )
                 if (
                     target is None
                     and item.entry.language == "python"
@@ -737,7 +754,12 @@ class IngestionPipeline:
                     and edge.relationship is RelationshipType.IMPORTS
                 ):
                     target = _resolve_js_ts_import_target(
-                        item.entry.rel_path, edge.target_qualified_name, resolve
+                        item.entry.rel_path,
+                        edge.target_qualified_name,
+                        resolve,
+                        file_nodes_by_path=file_nodes_by_path,
+                        lower_file_nodes_by_path=lower_file_nodes_by_path,
+                        alias_configs=alias_configs,
                     )
                 key = (source or "", target or "", edge.relationship.value)
                 if source and target and key not in seen:
@@ -751,6 +773,93 @@ class IngestionPipeline:
                         }
                     )
         return edges
+
+    def _reconcile_js_ts_import_edges(self, repo_path: str, repo_id: int) -> int:
+        """Backfill missing JS/TS IMPORTS edges without re-parsing unchanged files."""
+
+        file_nodes_by_path = self._graph.get_file_node_map_sync(repo_id)
+        if not any(path.lower().endswith(_JS_TS_SUFFIXES) for path in file_nodes_by_path):
+            return 0
+
+        lower_file_nodes_by_path = {
+            path.lower(): node_id for path, node_id in file_nodes_by_path.items()
+        }
+        alias_configs = load_js_ts_alias_configs(
+            Path(repo_path), file_nodes_by_path.keys()
+        )
+        retained_ids: dict[str, str | None] = {}
+
+        def resolve(qualified_name: str) -> str | None:
+            if qualified_name not in retained_ids:
+                retained_ids[qualified_name] = (
+                    self._graph.resolve_node_id_by_qualified_name_sync(
+                        repo_path, qualified_name
+                    )
+                )
+            return retained_ids[qualified_name]
+
+        candidate_pairs: dict[tuple[str, str], None] = {}
+        offset = 0
+        page_size = 5_000
+        while True:
+            import_nodes = self._graph.list_nodes_sync(
+                node_type=NodeType.IMPORT,
+                limit=page_size,
+                offset=offset,
+                repo_id=repo_id,
+            )
+            for node in import_nodes:
+                file_path = node.metadata.get("file_path")
+                if (
+                    not isinstance(file_path, str)
+                    or not file_path.lower().endswith(_JS_TS_SUFFIXES)
+                ):
+                    continue
+                source_file_id = file_nodes_by_path.get(file_path)
+                if source_file_id is None:
+                    continue
+                target_id = _resolve_js_ts_import_target(
+                    file_path,
+                    node.name,
+                    resolve,
+                    file_nodes_by_path=file_nodes_by_path,
+                    lower_file_nodes_by_path=lower_file_nodes_by_path,
+                    alias_configs=alias_configs,
+                )
+                if target_id is not None and target_id != source_file_id:
+                    candidate_pairs[(source_file_id, target_id)] = None
+            if len(import_nodes) < page_size:
+                break
+            offset += len(import_nodes)
+
+        if not candidate_pairs:
+            return 0
+
+        existing_pairs: set[tuple[str, str]] = set()
+        source_ids = sorted({source_id for source_id, _ in candidate_pairs})
+        for start in range(0, len(source_ids), 500):
+            edges_by_source = self._graph.batch_get_edges_sync(
+                source_ids[start : start + 500], direction="outgoing"
+            )
+            for source_id, edge_list in edges_by_source.items():
+                for edge in edge_list:
+                    if edge.relationship is RelationshipType.IMPORTS:
+                        existing_pairs.add((source_id, edge.target_id))
+
+        missing_edges: list[dict[str, object]] = [
+            {
+                "source_id": source_id,
+                "target_id": target_id,
+                "relationship": RelationshipType.IMPORTS.value,
+                "weight": 1.0,
+            }
+            for source_id, target_id in candidate_pairs
+            if (source_id, target_id) not in existing_pairs
+        ]
+        if not missing_edges:
+            return 0
+        self._graph.batch_upsert_edges_sync(missing_edges)
+        return len(missing_edges)
 
     def _retained_inbound_edges(
         self, replaced_ids: set[str], node_ids: dict[str, str]

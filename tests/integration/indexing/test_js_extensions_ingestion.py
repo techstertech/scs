@@ -3,12 +3,24 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
+
+import pytest
 
 from scs.graph.models import NodeType, RelationshipType
 from scs.graph.native import NativeGraph
+from scs.indexing.jobs import IngestionJobStore
 from scs.indexing.parser.native import NativeParser
 from scs.indexing.pipeline import IngestionPipeline
-from scs.providers.base import ProviderMetadata
+from scs.orchestration.decision import (
+    DecisionProviderKind,
+    Playbook,
+    RoutingDecision,
+    RoutingRequest,
+)
+from scs.orchestration.query import QueryOrchestrator
+from scs.providers.base import EmbeddingProvider, ProviderMetadata
+from scs.services.routes import SCSServiceRoutes
 
 
 class _PreUpgradeParser(NativeParser):
@@ -186,3 +198,236 @@ def test_previously_text_indexed_cjs_file_upgrades_incrementally_without_force(
         if edge.relationship == RelationshipType.IMPORTS.value
     }
     assert outgoing_targets == {"helper.cjs"}
+
+
+class _DisabledEmbeddings:
+    @property
+    def metadata(self) -> ProviderMetadata:
+        return ProviderMetadata("test", "disabled", 2, False, "offline")
+
+    async def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        del texts
+        return []
+
+    async def embed_query(self, text: str) -> list[float]:
+        del text
+        return []
+
+
+class _FixedProvider:
+    def __init__(self, playbook: Playbook) -> None:
+        self._playbook = playbook
+
+    async def classify(self, request: RoutingRequest) -> RoutingDecision:
+        del request
+        return RoutingDecision(
+            playbook=self._playbook,
+            provider=DecisionProviderKind.EXTERNAL,
+            model="test-provider",
+            confidence=1.0,
+            probabilities={
+                label: float(label is self._playbook) for label in Playbook
+            },
+        )
+
+
+@pytest.mark.asyncio
+async def test_references_and_relationships_resolve_extensionless_and_alias_tsx_importers(
+    repository: Path, tmp_path: Path
+) -> None:
+    (repository / "src" / "components").mkdir(parents=True)
+    (repository / "src" / "features").mkdir(parents=True)
+    (repository / "src" / "pages").mkdir(parents=True)
+    (repository / "src" / "other").mkdir(parents=True)
+
+    (repository / "tsconfig.json").write_text(
+        '{"compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["src/*"]}}}\n',
+        encoding="utf-8",
+    )
+    (repository / "src" / "components" / "Button.css").write_text(
+        ".btn { color: red; }\n", encoding="utf-8"
+    )
+    (repository / "src" / "components" / "Button.tsx").write_text(
+        "export function Button(label: string) { return <button>{label}</button>; }\n",
+        encoding="utf-8",
+    )
+    (repository / "src" / "components" / "OnlyHere.tsx").write_text(
+        "export function OnlyHere() { return null; }\n",
+        encoding="utf-8",
+    )
+    (repository / "src" / "components" / "Button.browser.spec.mjs").write_text(
+        "import { Button } from './Button.tsx';\nexport const spec = () => Button('ok');\n",
+        encoding="utf-8",
+    )
+    (repository / "src" / "features" / "ComplianceWorkspaceBody.tsx").write_text(
+        "\n".join(
+            [
+                "import { Button } from '../components/Button';",
+                "import { OnlyHere } from '../components/OnlyHere';",
+                "export const Workspace = () => Button(String(OnlyHere()));",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (repository / "src" / "pages" / "AliasConsumer.tsx").write_text(
+        "import { Button } from '@/components/Button';\nexport const Page = () => Button('go');\n",
+        encoding="utf-8",
+    )
+    (repository / "src" / "other" / "DuplicateButton.tsx").write_text(
+        "export function Button() { return null; }\n",
+        encoding="utf-8",
+    )
+
+    graph = _graph(tmp_path)
+    result = IngestionPipeline(graph=graph, parser=NativeParser()).ingest(repository)
+    assert result.files_failed == 0
+
+    file_nodes = {
+        str(node.metadata["file_path"]): node
+        for node in graph.list_nodes_sync(node_type=NodeType.FILE)
+    }
+    routes = SCSServiceRoutes(
+        graph=lambda: graph,
+        jobs=lambda: cast(IngestionJobStore, object()),
+        embeddings=lambda: cast(EmbeddingProvider, _DisabledEmbeddings()),
+    )
+
+    async def call(method: str, params: dict[str, object]) -> dict[str, object]:
+        if method == "knowledge.related":
+            return await routes.related(params)
+        if method == "knowledge.search":
+            return await routes.search(params)
+        raise AssertionError(f"unexpected route: {method}")
+
+    expected_importers = {
+        "src/components/Button.browser.spec.mjs",
+        "src/features/ComplianceWorkspaceBody.tsx",
+        "src/pages/AliasConsumer.tsx",
+    }
+
+    relationships_orchestrator = QueryOrchestrator(
+        provider=_FixedProvider(Playbook.RELATIONSHIPS), call=call
+    )
+    rel_result = await relationships_orchestrator.query(
+        {
+            "goal": "Find relationships for Button.tsx",
+            "repo_path": str(repository),
+            "node_ids": [file_nodes["src/components/Button.tsx"].id],
+        }
+    )
+    assert expected_importers <= {
+        item.get("file_path") for item in rel_result["evidence"]["relationships"]
+    }
+    assert expected_importers <= {
+        item.get("file_path") for item in rel_result["evidence"]["files"]
+    }
+    assert "src/components/Button.css" not in {
+        item.get("file_path") for item in rel_result["evidence"]["relationships"]
+    }
+
+    references_orchestrator = QueryOrchestrator(
+        provider=_FixedProvider(Playbook.REFERENCES), call=call
+    )
+    ref_narrowed = await references_orchestrator.query(
+        {
+            "goal": "Find references to Button",
+            "repo_path": str(repository),
+            "symbol_name": "Button",
+            "file_paths": ["src/components/Button.tsx"],
+        }
+    )
+    assert {item.get("file_path") for item in ref_narrowed["evidence"]["symbols"]} == {
+        "src/components/Button.tsx"
+    }
+    assert expected_importers <= {
+        item.get("file_path") for item in ref_narrowed["evidence"]["references"]
+    }
+    assert expected_importers <= {
+        item.get("file_path") for item in ref_narrowed["evidence"]["files"]
+    }
+
+    ref_symbol_only = await references_orchestrator.query(
+        {
+            "goal": "Find references to OnlyHere",
+            "repo_path": str(repository),
+            "symbol_name": "OnlyHere",
+        }
+    )
+    assert {
+        item.get("file_path") for item in ref_symbol_only["evidence"]["references"]
+    } == {"src/features/ComplianceWorkspaceBody.tsx"}
+
+
+def test_incremental_ingest_reconciles_missing_js_ts_import_edges_without_reparsing(
+    repository: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (repository / "src" / "components").mkdir(parents=True)
+    (repository / "src" / "features").mkdir(parents=True)
+    (repository / "src" / "pages").mkdir(parents=True)
+
+    (repository / "tsconfig.json").write_text(
+        '{"compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["src/*"]}}}\n',
+        encoding="utf-8",
+    )
+    (repository / "src" / "components" / "Button.css").write_text(
+        ".btn { color: red; }\n", encoding="utf-8"
+    )
+    (repository / "src" / "components" / "Button.tsx").write_text(
+        "export function Button(label: string) { return <button>{label}</button>; }\n",
+        encoding="utf-8",
+    )
+    (repository / "src" / "features" / "ComplianceWorkspaceBody.tsx").write_text(
+        "import { Button } from '../components/Button';\nexport const W = () => Button('a');\n",
+        encoding="utf-8",
+    )
+    (repository / "src" / "pages" / "AliasConsumer.tsx").write_text(
+        "import { Button } from '@/components/Button';\nexport const P = () => Button('b');\n",
+        encoding="utf-8",
+    )
+
+    graph = _graph(tmp_path)
+    with monkeypatch.context() as pre_upgrade:
+        pre_upgrade.setattr(
+            "scs.indexing.pipeline._resolve_js_ts_import_target",
+            lambda *_args, **_kwargs: None,
+        )
+        initial = IngestionPipeline(graph=graph, parser=NativeParser()).ingest(
+            repository
+        )
+    assert initial.files_failed == 0
+
+    file_nodes = {
+        str(node.metadata["file_path"]): node
+        for node in graph.list_nodes_sync(node_type=NodeType.FILE)
+    }
+    assert (
+        graph.get_edges_sync(
+            file_nodes["src/components/Button.tsx"].id, direction="incoming"
+        )
+        == []
+    )
+
+    reconciled = IngestionPipeline(graph=graph, parser=NativeParser()).ingest(
+        repository, force=False
+    )
+    assert reconciled.files_changed == 0
+    assert reconciled.edges_created == 2
+
+    incoming_sources = {
+        _target_file_path(graph, edge.source_id)
+        for edge in graph.get_edges_sync(
+            file_nodes["src/components/Button.tsx"].id, direction="incoming"
+        )
+        if edge.relationship == RelationshipType.IMPORTS.value
+    }
+    assert incoming_sources == {
+        "src/features/ComplianceWorkspaceBody.tsx",
+        "src/pages/AliasConsumer.tsx",
+    }
+
+    noop = IngestionPipeline(graph=graph, parser=NativeParser()).ingest(
+        repository, force=False
+    )
+    assert noop.files_changed == 0
+    assert noop.edges_created == 0

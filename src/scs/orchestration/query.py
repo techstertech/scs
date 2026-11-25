@@ -44,8 +44,8 @@ class ModeBudget:
 
 MODE_BUDGETS: dict[QueryMode, ModeBudget] = {
     "fast": ModeBudget(0.15, 5, 1, 1, 1.0),
-    "balanced": ModeBudget(0.5, 10, 2, 3, 7.0),
-    "thorough": ModeBudget(1.0, 20, 3, 5, 35.0),
+    "balanced": ModeBudget(1.5, 10, 2, 3, 7.0),
+    "thorough": ModeBudget(2.5, 20, 3, 5, 35.0),
 }
 
 REFERENCE_RELATIONSHIPS = (
@@ -388,17 +388,20 @@ class QueryOrchestrator:
             )
             for edge_type in edge_types:
                 stage_name = "references" if incoming else "traversal"
+                payload: dict[str, object] = {
+                    "node_id": identities[0] if identities else None,
+                    "symbol_name": symbol,
+                    "repo_path": request.repo_path,
+                    "depth": 1 if incoming else budget.graph_depth,
+                    "direction": "incoming" if incoming else "both",
+                    "relationship": edge_type.value if edge_type else None,
+                }
+                if symbol is not None and request.file_paths:
+                    payload["file_paths"] = request.file_paths
                 response = await stage(
                     stage_name,
                     "knowledge.related",
-                    {
-                        "node_id": identities[0] if identities else None,
-                        "symbol_name": symbol,
-                        "repo_path": request.repo_path,
-                        "depth": 1 if incoming else budget.graph_depth,
-                        "direction": "incoming" if incoming else "both",
-                        "relationship": edge_type.value if edge_type else None,
-                    },
+                    payload,
                 )
                 matches = _objects(response.get("matches"))
                 self._append_nodes(evidence, matches, stage_name)

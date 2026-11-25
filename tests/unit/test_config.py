@@ -334,3 +334,10 @@ def test_decision_endpoint_requires_an_explicit_trusted_host() -> None:
 def test_decision_endpoint_rejects_invalid_urls(endpoint: str) -> None:
     with pytest.raises(ValueError, match="decision_base_url"):
         SCSSettings(decision_base_url=endpoint)
+
+
+def test_decision_timeout_defaults_and_bounds() -> None:
+    assert SCSSettings().decision_timeout_seconds == 1.5
+    assert SCSSettings(decision_timeout_seconds=3.0).decision_timeout_seconds == 3.0
+    with pytest.raises(ValueError):
+        SCSSettings(decision_timeout_seconds=5.5)

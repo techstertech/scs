@@ -72,7 +72,8 @@ class ExternalDecisionProvider:
         if parsed.scheme != "http" or not parsed.hostname:
             raise ValueError("decision base URL must be HTTP")
         body = json.dumps(payload, separators=(",", ":")).encode() if payload is not None else None
-        connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=2)
+        timeout = 5.0 if method == "POST" else 2.0
+        connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=timeout)
         try:
             connection.request(
                 method,

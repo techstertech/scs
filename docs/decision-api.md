@@ -73,9 +73,10 @@ SCS sends `POST {decision_base_url}/decisions` with
 | `question.criteria` | A map of eligible SCS playbook labels to descriptions. |
 
 The service must answer within SCS's per-mode classifier budget: 150 ms for
-`fast`, 500 ms for `balanced`, and 1 second for `thorough`. SCS can also apply
-a lower configured `decision_timeout_seconds` ceiling. A slow or malformed
-in-flight answer degrades that query to deterministic discovery.
+`fast`, 1.5 s for `balanced`, and 2.5 s for `thorough`. SCS can also apply a
+lower configured `decision_timeout_seconds` ceiling (default 1.5 s,
+configurable up to 5.0 s). A slow or malformed in-flight answer degrades that
+query to deterministic discovery.
 
 ## Choice response
 

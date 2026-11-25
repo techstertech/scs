@@ -484,3 +484,71 @@ async def test_incomplete_exact_lookup_cannot_override_a_short_search_page(tmp_p
     result = await query.query({'goal': 'Find references to parse', 'repo_path': str(tmp_path)})
     assert result['routing']['anchor_resolution']['status'] != 'resolved'
     assert len(routes.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_concurrent_balanced_queries_do_not_time_out_serialized_classifier(
+    tmp_path: Path,
+) -> None:
+    class SerializedProvider:
+        def __init__(self) -> None:
+            self._semaphore = asyncio.Semaphore(1)
+            self.calls = 0
+
+        async def classify(self, request: RoutingRequest) -> RoutingDecision:
+            del request
+            async with self._semaphore:
+                self.calls += 1
+                await asyncio.sleep(0.28)
+                return RoutingDecision(
+                    playbook=Playbook.DISCOVER,
+                    model="serialized-test",
+                    confidence=1.0,
+                    probabilities={
+                        label: float(label is Playbook.DISCOVER) for label in Playbook
+                    },
+                )
+
+    provider = SerializedProvider()
+    routes = FakeRoutes()
+    query = QueryOrchestrator(provider=provider, call=routes.call)
+
+    results = await asyncio.gather(
+        *(
+            query.query(
+                {"goal": f"find component {index}", "repo_path": str(tmp_path), "mode": "balanced"}
+            )
+            for index in range(3)
+        )
+    )
+
+    assert provider.calls == 3
+    for result in results:
+        assert result["routing"]["provider"] == "external"
+        assert result["routing"]["model"] == "serialized-test"
+        assert result["routing"]["fallback_applied"] is False
+        assert result["routing"]["degraded_reason"] is None
+
+
+@pytest.mark.asyncio
+async def test_references_playbook_forwards_file_paths_with_symbol_name(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "Button.tsx").write_text("export function Button() {}\n")
+    routes = FakeRoutes()
+    query = QueryOrchestrator(provider=FixedProvider(Playbook.REFERENCES), call=routes.call)
+
+    await query.query(
+        {
+            "goal": "Find references to Button",
+            "repo_path": str(tmp_path),
+            "symbol_name": "Button",
+            "file_paths": ["Button.tsx"],
+        }
+    )
+
+    assert routes.calls
+    for method, params in routes.calls:
+        assert method == "knowledge.related"
+        assert params["symbol_name"] == "Button"
+        assert params["file_paths"] == ["Button.tsx"]

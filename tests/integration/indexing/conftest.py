@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from scs.graph.models import Edge, NodeType, RelationshipType
+from scs.graph.models import Edge, Node, NodeType, RelationshipType
 from scs.indexing.parser.base import ParsedEdge, ParsedEntity
 
 
@@ -70,6 +70,37 @@ class FakeGraph:
 
     def resolve_repo_id_sync(self, path: str) -> int | None:
         return self.repos.get(path)
+
+    def get_file_node_map_sync(self, repo_id: int) -> dict[str, str]:
+        return {
+            str(node["name"]): str(node_id)
+            for node_id, node in self.nodes.items()
+            if node.get("repo_id") == repo_id and node.get("type") == NodeType.FILE.value
+        }
+
+    def list_nodes_sync(
+        self,
+        *,
+        node_type: NodeType | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        repo_id: int | None = None,
+    ) -> list[Node]:
+        items = [
+            Node.model_validate(node)
+            for node in self.nodes.values()
+            if (node_type is None or node.get("type") == node_type.value)
+            and (repo_id is None or node.get("repo_id") == repo_id)
+        ]
+        return items[offset : offset + limit]
+
+    def batch_get_edges_sync(
+        self, node_ids: list[str], *, direction: str = "both"
+    ) -> dict[str, list[Edge]]:
+        return {
+            node_id: self.get_edges_sync(node_id, direction=direction)
+            for node_id in node_ids
+        }
 
     def get_ingestion_stats_sync(self) -> dict[str, dict[str, object]]:
         return {

@@ -603,6 +603,48 @@ class SCSServiceRoutes:
                 return {"outcome": "timeout", "job": _job_summary(job)}
             await asyncio.sleep(min(JOB_WAIT_POLL_SECONDS, remaining))
 
+    @staticmethod
+    def _containing_file_id_sync(graph: NativeGraph, node: Node) -> str | None:
+        """Walk incoming CONTAINS edges from a symbol up to its enclosing file node."""
+
+        if node.type is NodeType.FILE:
+            return None
+        current_id = node.id
+        visited: set[str] = {current_id}
+        for _ in range(6):
+            incoming = graph.get_edges_sync(
+                current_id,
+                relationship=RelationshipType.CONTAINS.value,
+                direction="incoming",
+            )
+            parent_id = next(
+                (
+                    edge.source_id
+                    for edge in incoming
+                    if edge.target_id == current_id and edge.source_id not in visited
+                ),
+                None,
+            )
+            if parent_id is None:
+                return None
+            visited.add(parent_id)
+            parent = graph.get_node_sync(parent_id)
+            if parent is None:
+                return None
+            if parent.type is NodeType.FILE:
+                return parent.id
+            current_id = parent.id
+        return None
+
+    @staticmethod
+    def _related_item_node_id(item: dict[str, object]) -> str | None:
+        raw_node = item.get("node")
+        if isinstance(raw_node, dict):
+            raw_id = cast(dict[str, object], raw_node).get("id")
+            return str(raw_id) if isinstance(raw_id, str) and raw_id else None
+        raw_id = item.get("id")
+        return str(raw_id) if isinstance(raw_id, str) and raw_id else None
+
     async def related(self, params: dict[str, object]) -> dict[str, object]:
         resolve_only = params.get("resolve_only", False)
         if type(resolve_only) is not bool:
@@ -612,6 +654,7 @@ class SCSServiceRoutes:
         node_id = _string(params, "node_id")
         if (symbol is None) == (node_id is None):
             raise ValueError("exactly one of symbol_name or node_id is required")
+        allowed_files = set(_string_list(params, "file_paths"))
         repo_path = params.get("repo_path")
         graph = self._read_graph(repo_path)
         if graph is None:
@@ -642,7 +685,13 @@ class SCSServiceRoutes:
                 )
             )
             matches = sorted(
-                {node.id: node for nodes in matches_by_type for node in nodes}.values(),
+                {
+                    node.id: node
+                    for nodes in matches_by_type
+                    for node in nodes
+                    if not allowed_files
+                    or node.metadata.get("file_path") in allowed_files
+                }.values(),
                 key=lambda node: (node.name.casefold() != symbol.casefold(), node.name, node.id),
             )
             # An exact declaration is the deterministic answer to a symbol lookup.
@@ -682,10 +731,50 @@ class SCSServiceRoutes:
                     relationship=relationship,
                     direction=active_direction,
                 )
+                seen_node_ids: set[str] = {
+                    item_id
+                    for item in traversal
+                    if (item_id := self._related_item_node_id(item)) is not None
+                }
                 related.extend(
                     {**item, "direction": active_direction, "seed_id": match.id}
                     for item in traversal
                 )
+                if (
+                    active_direction == "incoming"
+                    and relationship == RelationshipType.IMPORTS.value
+                    and match.type is not NodeType.FILE
+                ):
+                    owner_file_id = await asyncio.to_thread(
+                        self._containing_file_id_sync, graph, match
+                    )
+                    if owner_file_id is not None:
+                        file_traversal = await asyncio.to_thread(
+                            graph.traverse_sync,
+                            owner_file_id,
+                            depth=depth,
+                            relationship=relationship,
+                            direction="incoming",
+                        )
+                        for item in file_traversal:
+                            raw_depth = item.get("depth", 0)
+                            if (
+                                isinstance(raw_depth, bool)
+                                or not isinstance(raw_depth, int)
+                                or raw_depth <= 0
+                            ):
+                                continue
+                            item_id = self._related_item_node_id(item)
+                            if (
+                                item_id is None
+                                or item_id == match.id
+                                or item_id in seen_node_ids
+                            ):
+                                continue
+                            seen_node_ids.add(item_id)
+                            related.append(
+                                {**item, "direction": active_direction, "seed_id": match.id}
+                            )
         return {
             "symbol_name": symbol,
             "node_id": node_id,

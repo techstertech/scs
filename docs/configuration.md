@@ -182,8 +182,9 @@ and sends goals and anchors to that host. SCS verifies the configured model's
 readiness before its daemon becomes ready and validates the model identity in
 every choice response. See [the API contract](decision-api.md).
 
-`decision_timeout_seconds` defaults to 0.5 seconds and can lower each mode's
-classifier deadline. `decision_max_concurrency` defaults to 1 and accepts 1–4.
+`decision_timeout_seconds` defaults to 1.5 seconds (up to 5.0 seconds) and can
+lower each mode's classifier deadline. `decision_max_concurrency` defaults to 1
+and accepts 1–4.
 The environment equivalents use the `SCS_` prefix, including
 `SCS_DECISION_MODEL` and `SCS_DECISION_BASE_URL`.
 
