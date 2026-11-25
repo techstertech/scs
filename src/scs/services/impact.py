@@ -112,12 +112,40 @@ def changed_symbol_impact(
                     "dependent_node_id": edge.source_id, "affected_node_id": target,
                     "relationship": edge.relationship.value,
                 }
+                for meta_key in (
+                    "start_line",
+                    "end_line",
+                    "reference_kind",
+                    "enclosing_symbol",
+                    "via_barrel",
+                ):
+                    if meta_key in edge.metadata and edge.metadata[meta_key] is not None:
+                        step[meta_key] = edge.metadata[meta_key]
                 paths[edge.source_id] = [*paths[target], step]
                 following.append(edge.source_id)
         frontier = following
 
-    dependent_ids = sorted(set(paths) - set(seeds), key=lambda key: (len(paths[key]), key))
-    dependents = sorted(graph.batch_get_nodes_sync(dependent_ids), key=lambda node: (len(paths[node.id]), node.id))
+    def _path_rank(node_id: str) -> tuple[int, int, str]:
+        chain = paths[node_id]
+        has_imports_only = all(
+            step.get("relationship") == RelationshipType.IMPORTS.value
+            for step in chain
+        )
+        return (len(chain), 1 if has_imports_only else 0, node_id)
+
+    dependent_ids = sorted(set(paths) - set(seeds), key=_path_rank)
+    dependents = sorted(
+        graph.batch_get_nodes_sync(dependent_ids[:MAX_REVIEW_NODES]),
+        key=lambda node: _path_rank(node.id),
+    )
+    dep_files = {
+        node.id: str(node.metadata.get("file_path", "")) for node in dependents
+    }
+    for chain in paths.values():
+        for step in chain:
+            dep_id = step.get("dependent_node_id")
+            if isinstance(dep_id, str) and dep_id in dep_files and dep_files[dep_id]:
+                step.setdefault("file_path", dep_files[dep_id])
     test_nodes = [node for node in dependents if is_test_path(str(node.metadata.get("file_path", "")))]
     test_paths = sorted({str(node.metadata["file_path"]) for node in test_nodes})
     targets = [{
@@ -131,7 +159,9 @@ def changed_symbol_impact(
         "affected_node_ids": sorted(seeds),
         "changed_symbols": [seeds[key].model_dump(mode="json") for key in sorted(seeds)],
         "dependents": [node.model_dump(mode="json") for node in dependents[:limit]],
+        "total_dependents": len(dependent_ids),
         "test_targets": targets,
+        "total_test_targets": len(test_paths),
         "dependency_paths": [{"dependent_node_id": key, "path": paths[key]} for key in dependent_ids[:limit]],
         "unresolved_ranges": unresolved,
         "dependents_truncated": dependents_truncated,

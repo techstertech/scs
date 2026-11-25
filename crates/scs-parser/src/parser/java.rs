@@ -5,16 +5,17 @@
 //! descriptors, inheritance/implementation edges, call edges, Javadoc,
 //! and cyclomatic complexity from `.java` source files.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 
+use serde_json::json;
 use tree_sitter::{Node, Parser};
 
 use scs_core::node_types::NodeType;
 
 use super::{
-    count_complexity, truncate_str, LanguageParser, ParsedEdge, ParsedEntity, RAW_TEXT_LIMIT,
-    RAW_TEXT_SMALL_LIMIT,
+    build_call_edges, count_complexity, truncate_str, CallSite, LanguageParser, ParsedEdge,
+    ParsedEntity, RAW_TEXT_LIMIT, RAW_TEXT_SMALL_LIMIT,
 };
 
 const JAVA_BUILTIN_CALLS: &[&str] = &[
@@ -262,10 +263,30 @@ impl JavaParser {
             "contains",
         ));
         for target in inherit_targets {
-            edges.push(ParsedEdge::new(qualified.clone(), target, "inherits"));
+            let mut meta = HashMap::new();
+            meta.insert("reference_kind".to_string(), json!("extends"));
+            meta.insert("start_line".to_string(), json!(node.start_position().row));
+            meta.insert("end_line".to_string(), json!(node.end_position().row));
+            meta.insert("enclosing_symbol".to_string(), json!(qualified));
+            edges.push(ParsedEdge::with_metadata(
+                qualified.clone(),
+                target,
+                "inherits",
+                meta,
+            ));
         }
         for target in implement_targets {
-            edges.push(ParsedEdge::new(qualified.clone(), target, "implements"));
+            let mut meta = HashMap::new();
+            meta.insert("reference_kind".to_string(), json!("implements"));
+            meta.insert("start_line".to_string(), json!(node.start_position().row));
+            meta.insert("end_line".to_string(), json!(node.end_position().row));
+            meta.insert("enclosing_symbol".to_string(), json!(qualified));
+            edges.push(ParsedEdge::with_metadata(
+                qualified.clone(),
+                target,
+                "implements",
+                meta,
+            ));
         }
 
         if node.kind() == "record_declaration" {
@@ -510,20 +531,15 @@ impl JavaParser {
         ));
 
         if let Some(body_node) = body {
-            let mut callees: Vec<String> = java_calls(
+            let sites = java_calls(
                 body_node,
                 source,
                 owner_type,
                 package_name,
                 imported_types,
                 static_imports,
-            )
-            .into_iter()
-            .collect();
-            callees.sort();
-            for target in callees {
-                edges.push(ParsedEdge::new(qualified.clone(), target, "calls"));
-            }
+            );
+            edges.extend(build_call_edges(&qualified, sites));
         }
     }
 
@@ -917,7 +933,7 @@ fn java_calls(
     package_name: &str,
     imported_types: &HashMap<String, String>,
     static_imports: &HashMap<String, String>,
-) -> HashSet<String> {
+) -> Vec<CallSite> {
     #[allow(clippy::too_many_arguments)]
     fn walk(
         node: Node,
@@ -926,7 +942,7 @@ fn java_calls(
         package_name: &str,
         imported_types: &HashMap<String, String>,
         static_imports: &HashMap<String, String>,
-        calls: &mut HashSet<String>,
+        calls: &mut Vec<CallSite>,
     ) {
         match node.kind() {
             "method_invocation" => {
@@ -971,7 +987,12 @@ fn java_calls(
                                 _ => method_name.to_string(),
                             },
                         };
-                        calls.insert(target);
+                        calls.push(CallSite {
+                            name: target,
+                            qualifier: None,
+                            start_line: node.start_position().row,
+                            end_line: node.end_position().row,
+                        });
                     }
                 }
             }
@@ -980,7 +1001,12 @@ fn java_calls(
                     if let Some(raw_type) = normalize_java_type_name(type_node, source) {
                         let resolved = resolve_type_name(&raw_type, package_name, imported_types);
                         if !is_java_lang_builtin_type(&resolved) {
-                            calls.insert(resolved);
+                            calls.push(CallSite {
+                                name: resolved,
+                                qualifier: None,
+                                start_line: node.start_position().row,
+                                end_line: node.end_position().row,
+                            });
                         }
                     }
                 }
@@ -1002,7 +1028,7 @@ fn java_calls(
         }
     }
 
-    let mut calls = HashSet::new();
+    let mut calls = Vec::new();
     walk(
         body,
         source,
@@ -1018,6 +1044,7 @@ fn java_calls(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     const REPRESENTATIVE_JAVA: &str = r#"
 package com.acme.service;

@@ -10,7 +10,10 @@ use tree_sitter::{Node, Parser};
 
 use scs_core::node_types::NodeType;
 
-use super::{count_complexity, extract_calls, LanguageParser, ParsedEdge, ParsedEntity};
+use super::{
+    build_call_edges, count_complexity, extract_call_sites, LanguageParser, ParsedEdge,
+    ParsedEntity,
+};
 
 /// Built-in names to exclude from call-graph edges (Swift).
 const SWIFT_BUILTIN_CALLS: &[&str] = &[
@@ -323,10 +326,8 @@ impl SwiftParser {
         // CALLS edges from this function/method to callees in its body.
         {
             let blocklist: HashSet<&str> = SWIFT_BUILTIN_CALLS.iter().copied().collect();
-            let callees = extract_calls(&node, source, "swift", &blocklist);
-            for callee in callees {
-                edges.push(ParsedEdge::new(qualified.clone(), callee, "calls"));
-            }
+            let sites = extract_call_sites(&node, source, "swift", &blocklist);
+            edges.extend(build_call_edges(&qualified, sites));
         }
     }
 

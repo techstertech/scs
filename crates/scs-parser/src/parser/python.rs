@@ -4,13 +4,17 @@
 //! aliases from Python source files. Uses a scope stack to build
 //! fully qualified names (e.g. "MyModule.MyClass.my_method").
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
+use serde_json::{json, Value};
 use tree_sitter::{Node, Parser};
 
 use scs_core::node_types::NodeType;
 
-use super::{count_complexity, extract_calls, LanguageParser, ParsedEdge, ParsedEntity};
+use super::{
+    build_call_edges, count_complexity, extract_call_sites, normalize_http_path, LanguageParser,
+    ParsedEdge, ParsedEntity,
+};
 
 /// Built-in function names to exclude from call-graph edges.
 /// These are stdlib/builtin calls that would never match a project entity.
@@ -178,6 +182,254 @@ fn get_return_type(node: &Node, source: &[u8]) -> String {
     String::new()
 }
 
+fn function_name_of(node: &Node, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "identifier" {
+            let name = get_text(&child, source);
+            if !name.is_empty() {
+                return Some(name.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn python_string_literal(node: &Node, source: &[u8]) -> Option<String> {
+    if node.kind() != "string" {
+        return None;
+    }
+    let raw = get_text(node, source).trim();
+    if raw.starts_with("f\"") || raw.starts_with("f'") {
+        return None;
+    }
+    for delim in ["\"\"\"", "'''", "\"", "'"] {
+        if raw.starts_with(delim) && raw.ends_with(delim) && raw.len() >= delim.len() * 2 {
+            let inner = &raw[delim.len()..raw.len() - delim.len()];
+            if !inner.is_empty() {
+                return Some(inner.to_string());
+            }
+            return None;
+        }
+    }
+    None
+}
+
+fn is_http_method_name(method: &str) -> bool {
+    matches!(
+        method,
+        "get" | "post" | "put" | "patch" | "delete" | "head" | "options" | "route" | "api_route"
+    )
+}
+
+fn extract_python_route_decorators(
+    decorators: &[Node],
+    source: &[u8],
+    fn_qname: &str,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    for dec in decorators {
+        let Some(call) = (0..dec.named_child_count())
+            .filter_map(|i| dec.named_child(i))
+            .find(|c| c.kind() == "call")
+        else {
+            continue;
+        };
+        let Some(func) = call.child_by_field_name("function") else {
+            continue;
+        };
+        if func.kind() != "attribute" {
+            continue;
+        }
+        let Some(attr) = func.child_by_field_name("attribute") else {
+            continue;
+        };
+        let method_lower = get_text(&attr, source).to_ascii_lowercase();
+        if !is_http_method_name(&method_lower) {
+            continue;
+        }
+        let Some(args) = call.child_by_field_name("arguments") else {
+            continue;
+        };
+        let mut path_raw: Option<String> = None;
+        let mut explicit_methods: Vec<String> = Vec::new();
+        let mut arg_cursor = args.walk();
+        for arg in args.named_children(&mut arg_cursor) {
+            if path_raw.is_none() && arg.kind() == "string" {
+                path_raw = python_string_literal(&arg, source);
+            } else if arg.kind() == "keyword_argument" {
+                let key = arg
+                    .child_by_field_name("name")
+                    .map(|n| get_text(&n, source));
+                let val = arg.child_by_field_name("value");
+                if key == Some("path") || key == Some("rule") {
+                    if let Some(v) = val {
+                        path_raw = python_string_literal(&v, source);
+                    }
+                } else if key == Some("methods") {
+                    if let Some(v) = val {
+                        let mut mcursor = v.walk();
+                        for elem in v.named_children(&mut mcursor) {
+                            if let Some(lit) = python_string_literal(&elem, source) {
+                                explicit_methods.push(lit.to_ascii_uppercase());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let Some(raw) = path_raw else {
+            continue;
+        };
+        let Some(norm_path) = normalize_http_path(&raw) else {
+            continue;
+        };
+        let methods = if !explicit_methods.is_empty() {
+            explicit_methods
+        } else if matches!(method_lower.as_str(), "route" | "api_route") {
+            vec!["GET".to_string()]
+        } else {
+            vec![method_lower.to_ascii_uppercase()]
+        };
+        for http_method in methods {
+            let mut meta = HashMap::new();
+            meta.insert("reference_kind".to_string(), json!("http_route_handler"));
+            meta.insert("http_method".to_string(), json!(http_method));
+            meta.insert("http_path".to_string(), json!(raw));
+            meta.insert("norm_path".to_string(), json!(norm_path));
+            meta.insert("start_line".to_string(), json!(dec.start_position().row));
+            meta.insert("end_line".to_string(), json!(dec.end_position().row));
+            meta.insert("enclosing_symbol".to_string(), json!(fn_qname));
+            meta.insert("handler_symbol".to_string(), json!(fn_qname));
+            edges.push(ParsedEdge::with_metadata(
+                fn_qname.to_string(),
+                format!("__scs_http_handler__:{http_method}:{norm_path}"),
+                "references",
+                meta,
+            ));
+        }
+    }
+}
+
+fn extract_python_http_clients(
+    body: Node,
+    source: &[u8],
+    enclosing_qname: &str,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut cursor = body.walk();
+    let mut reached_root = false;
+    loop {
+        let n = cursor.node();
+        if n.kind() == "call" {
+            if let Some(func) = n.child_by_field_name("function") {
+                if func.kind() == "attribute" {
+                    let obj_name = func
+                        .child_by_field_name("object")
+                        .map(|o| get_text(&o, source).to_ascii_lowercase())
+                        .unwrap_or_default();
+                    let attr_name = func
+                        .child_by_field_name("attribute")
+                        .map(|a| get_text(&a, source).to_ascii_lowercase())
+                        .unwrap_or_default();
+                    let client_like = obj_name == "requests"
+                        || obj_name == "httpx"
+                        || obj_name.ends_with("client")
+                        || obj_name.ends_with("session")
+                        || obj_name == "api";
+                    if client_like
+                        && matches!(
+                            attr_name.as_str(),
+                            "get" | "post" | "put" | "patch" | "delete" | "head" | "options" | "request"
+                        )
+                    {
+                        if let Some(args) = n.child_by_field_name("arguments") {
+                            let mut http_method = if attr_name == "request" {
+                                "ANY".to_string()
+                            } else {
+                                attr_name.to_ascii_uppercase()
+                            };
+                            let mut raw_path: Option<String> = None;
+                            let mut ac = args.walk();
+                            let named: Vec<Node> = args.named_children(&mut ac).collect();
+                            if attr_name == "request" && named.len() >= 2 {
+                                if let Some(m) = python_string_literal(&named[0], source) {
+                                    http_method = m.to_ascii_uppercase();
+                                }
+                                raw_path = python_string_literal(&named[1], source);
+                            } else if let Some(first) = named.first() {
+                                raw_path = python_string_literal(first, source);
+                            }
+                            if raw_path.is_none() {
+                                for arg in &named {
+                                    if arg.kind() == "keyword_argument" {
+                                        let key = arg
+                                            .child_by_field_name("name")
+                                            .map(|k| get_text(&k, source));
+                                        if key == Some("url") {
+                                            if let Some(val) = arg.child_by_field_name("value") {
+                                                raw_path = python_string_literal(&val, source);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if let Some(raw) = raw_path {
+                                if let Some(norm_path) = normalize_http_path(&raw) {
+                                    let mut meta = HashMap::new();
+                                    meta.insert(
+                                        "reference_kind".to_string(),
+                                        json!("http_route_client"),
+                                    );
+                                    meta.insert("http_method".to_string(), json!(http_method));
+                                    meta.insert("http_path".to_string(), json!(raw));
+                                    meta.insert("norm_path".to_string(), json!(norm_path));
+                                    meta.insert(
+                                        "start_line".to_string(),
+                                        json!(n.start_position().row),
+                                    );
+                                    meta.insert(
+                                        "end_line".to_string(),
+                                        json!(n.end_position().row),
+                                    );
+                                    meta.insert(
+                                        "enclosing_symbol".to_string(),
+                                        json!(enclosing_qname),
+                                    );
+                                    edges.push(ParsedEdge::with_metadata(
+                                        enclosing_qname.to_string(),
+                                        format!("__scs_http_client__:{http_method}:{norm_path}"),
+                                        "references",
+                                        meta,
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if cursor.goto_first_child() {
+            continue;
+        }
+        if cursor.goto_next_sibling() {
+            continue;
+        }
+        loop {
+            if !cursor.goto_parent() {
+                reached_root = true;
+                break;
+            }
+            if cursor.goto_next_sibling() {
+                break;
+            }
+        }
+        if reached_root {
+            break;
+        }
+    }
+}
+
 /// Extract base classes from a class definition's argument_list.
 fn get_bases(node: &Node, source: &[u8]) -> Vec<String> {
     let mut cursor = node.walk();
@@ -230,8 +482,15 @@ impl PythonParser {
                     self.handle_function(child, source, module_name, entities, edges, scope_stack);
                 }
                 "decorated_definition" => {
+                    let mut decorators = Vec::new();
                     let mut sub_cursor = child.walk();
                     for sub in child.children(&mut sub_cursor) {
+                        if sub.kind() == "decorator" {
+                            decorators.push(sub);
+                        }
+                    }
+                    let mut sub_cursor2 = child.walk();
+                    for sub in child.children(&mut sub_cursor2) {
                         match sub.kind() {
                             "class_definition" => self.handle_class(
                                 sub,
@@ -241,14 +500,28 @@ impl PythonParser {
                                 edges,
                                 scope_stack,
                             ),
-                            "function_definition" => self.handle_function(
-                                sub,
-                                source,
-                                module_name,
-                                entities,
-                                edges,
-                                scope_stack,
-                            ),
+                            "function_definition" => {
+                                self.handle_function(
+                                    sub,
+                                    source,
+                                    module_name,
+                                    entities,
+                                    edges,
+                                    scope_stack,
+                                );
+                                if !decorators.is_empty() {
+                                    if let Some(fn_name) = function_name_of(&sub, source) {
+                                        let fn_qname =
+                                            format!("{}.{fn_name}", scope_stack.join("."));
+                                        extract_python_route_decorators(
+                                            &decorators,
+                                            source,
+                                            &fn_qname,
+                                            edges,
+                                        );
+                                    }
+                                }
+                            }
                             _ => {}
                         }
                     }
@@ -346,7 +619,17 @@ impl PythonParser {
 
         // INHERITS edges for base classes.
         for base in &bases {
-            edges.push(ParsedEdge::new(qualified.clone(), base.clone(), "inherits"));
+            let mut meta = HashMap::new();
+            meta.insert("reference_kind".to_string(), json!("extends"));
+            meta.insert("start_line".to_string(), json!(node.start_position().row));
+            meta.insert("end_line".to_string(), json!(node.end_position().row));
+            meta.insert("enclosing_symbol".to_string(), json!(qualified));
+            edges.push(ParsedEdge::with_metadata(
+                qualified.clone(),
+                base.clone(),
+                "inherits",
+                meta,
+            ));
         }
 
         // Recurse into class body for methods and nested classes.
@@ -435,10 +718,9 @@ impl PythonParser {
         // CALLS edges from this function/method to callees in its body.
         if let Some(body) = body_node {
             let blocklist: HashSet<&str> = PYTHON_BUILTIN_CALLS.iter().copied().collect();
-            let callees = extract_calls(&body, source, "python", &blocklist);
-            for callee in callees {
-                edges.push(ParsedEdge::new(qualified.clone(), callee, "calls"));
-            }
+            let sites = extract_call_sites(&body, source, "python", &blocklist);
+            edges.extend(build_call_edges(&qualified, sites));
+            extract_python_http_clients(body, source, &qualified, edges);
         }
     }
 
@@ -475,7 +757,18 @@ impl PythonParser {
                     qualified,
                     "contains",
                 ));
-                edges.push(ParsedEdge::new(module_name.to_string(), name, "imports"));
+                let mut meta = HashMap::new();
+                meta.insert("reference_kind".to_string(), json!("imports_namespace"));
+                meta.insert("start_line".to_string(), json!(node.start_position().row));
+                meta.insert("end_line".to_string(), json!(node.end_position().row));
+                meta.insert("enclosing_symbol".to_string(), json!(module_name));
+                meta.insert("wildcard_import".to_string(), json!(true));
+                edges.push(ParsedEdge::with_metadata(
+                    module_name.to_string(),
+                    name,
+                    "imports",
+                    meta,
+                ));
             }
         }
     }
@@ -489,34 +782,91 @@ impl PythonParser {
         edges: &mut Vec<ParsedEdge>,
     ) {
         let mut from_module = String::new();
-        let mut imported_names: Vec<String> = Vec::new();
+        let mut imported_pairs: Vec<(String, String)> = Vec::new();
+        let mut has_wildcard = false;
+
+        if let Some(mod_node) = node.child_by_field_name("module_name") {
+            from_module = get_text(&mod_node, source).trim().to_string();
+        }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            if child.kind() == "dotted_name" && from_module.is_empty() {
-                from_module = get_text(&child, source).to_string();
-            } else if child.kind() == "import_from_specifier" || child.kind() == "dotted_name" {
-                let mut sub_cursor = child.walk();
-                for sub in child.children(&mut sub_cursor) {
-                    if sub.kind() == "identifier" {
-                        imported_names.push(get_text(&sub, source).to_string());
+            if Some(child) == node.child_by_field_name("module_name") {
+                continue;
+            }
+            match child.kind() {
+                "dotted_name" => {
+                    if from_module.is_empty() {
+                        from_module = get_text(&child, source).to_string();
+                    } else {
+                        let mut sub_cursor = child.walk();
+                        for sub in child.children(&mut sub_cursor) {
+                            if sub.kind() == "identifier" {
+                                let name = get_text(&sub, source).to_string();
+                                imported_pairs.push((name.clone(), name));
+                            }
+                        }
                     }
                 }
-            } else if child.kind() == "identifier" {
-                imported_names.push(get_text(&child, source).to_string());
+                "aliased_import" => {
+                    let orig = child
+                        .child_by_field_name("name")
+                        .map(|n| get_text(&n, source).trim().to_string())
+                        .unwrap_or_default();
+                    let alias = child
+                        .child_by_field_name("alias")
+                        .map(|n| get_text(&n, source).trim().to_string())
+                        .unwrap_or_else(|| orig.clone());
+                    if !orig.is_empty() {
+                        imported_pairs.push((orig, alias));
+                    }
+                }
+                "import_from_specifier" => {
+                    let mut sub_cursor = child.walk();
+                    for sub in child.children(&mut sub_cursor) {
+                        if sub.kind() == "identifier" {
+                            let name = get_text(&sub, source).to_string();
+                            imported_pairs.push((name.clone(), name));
+                        }
+                    }
+                }
+                "wildcard_import" => {
+                    has_wildcard = true;
+                }
+                "identifier" => {
+                    let name = get_text(&child, source).to_string();
+                    imported_pairs.push((name.clone(), name));
+                }
+                _ => {}
             }
         }
 
-        for name in imported_names {
+        let imported_symbols: Vec<Value> = imported_pairs
+            .iter()
+            .map(|(orig, _)| json!(orig))
+            .collect();
+        let bindings: Vec<Value> = imported_pairs
+            .iter()
+            .map(|(orig, local)| {
+                json!({
+                    "imported": orig,
+                    "local": local,
+                    "kind": "named",
+                })
+            })
+            .collect();
+
+        for (orig_name, _local_name) in &imported_pairs {
             let full_import = if !from_module.is_empty() {
-                format!("{from_module}.{name}")
+                format!("{from_module}.{orig_name}")
             } else {
-                name.clone()
+                orig_name.clone()
             };
+            let clean_mod = from_module.trim_start_matches('.');
             let qualified = format!("{module_name}.import.{full_import}");
             entities.push(ParsedEntity {
                 kind: NodeType::Import,
-                name,
+                name: orig_name.clone(),
                 qualified_name: qualified.clone(),
                 start_line: node.start_position().row,
                 end_line: node.end_position().row,
@@ -534,11 +884,49 @@ impl PythonParser {
                 qualified,
                 "contains",
             ));
-            edges.push(ParsedEdge::new(
+            let mut meta = HashMap::new();
+            meta.insert("reference_kind".to_string(), json!("imports_named"));
+            meta.insert("start_line".to_string(), json!(node.start_position().row));
+            meta.insert("end_line".to_string(), json!(node.end_position().row));
+            meta.insert("enclosing_symbol".to_string(), json!(module_name));
+            meta.insert("imported_symbols".to_string(), json!([orig_name]));
+            meta.insert("wildcard_import".to_string(), json!(false));
+            if !clean_mod.is_empty() {
+                meta.insert("from_module".to_string(), json!(clean_mod));
+            }
+            if !bindings.is_empty() {
+                meta.insert("import_bindings".to_string(), Value::Array(bindings.clone()));
+            }
+            edges.push(ParsedEdge::with_metadata(
                 module_name.to_string(),
                 full_import,
                 "imports",
+                meta,
             ));
+        }
+
+        if has_wildcard && imported_pairs.is_empty() && !from_module.is_empty() {
+            let clean_mod = from_module.trim_start_matches('.').to_string();
+            if !clean_mod.is_empty() {
+                let mut meta = HashMap::new();
+                meta.insert("reference_kind".to_string(), json!("imports_namespace"));
+                meta.insert("start_line".to_string(), json!(node.start_position().row));
+                meta.insert("end_line".to_string(), json!(node.end_position().row));
+                meta.insert("enclosing_symbol".to_string(), json!(module_name));
+                if !imported_symbols.is_empty() {
+                    meta.insert("imported_symbols".to_string(), Value::Array(imported_symbols));
+                }
+                if !bindings.is_empty() {
+                    meta.insert("import_bindings".to_string(), Value::Array(bindings));
+                }
+                meta.insert("wildcard_import".to_string(), json!(true));
+                edges.push(ParsedEdge::with_metadata(
+                    module_name.to_string(),
+                    clean_mod,
+                    "imports",
+                    meta,
+                ));
+            }
         }
     }
 
@@ -888,5 +1276,45 @@ class MyClass:
         let calls: Vec<&ParsedEdge> = edges.iter().filter(|e| e.relationship == "calls").collect();
         // Should extract the rightmost identifier from the chain.
         assert!(calls.iter().any(|e| e.target_qualified_name == "deep_call"));
+    }
+
+    #[test]
+    fn extracts_call_site_lines_aliased_imports_and_fastapi_routes() {
+        let parser = PythonParser::new();
+        let source = r#"
+from app.services import create_item as make_item
+
+@router.post("/api/items/{item_id}")
+def post_item():
+    return make_item()
+
+def call_backend():
+    return requests.post("/api/items/123")
+"#;
+        let (_, edges) = parser.parse(source, "app/routes.py");
+
+        assert!(edges.iter().any(|e| {
+            e.relationship == "calls"
+                && e.target_qualified_name == "make_item"
+                && e.metadata.get("start_line") == Some(&json!(5))
+                && e.metadata.get("enclosing_symbol") == Some(&json!("app.routes.post_item"))
+        }));
+        assert!(edges.iter().any(|e| {
+            e.relationship == "imports"
+                && e.target_qualified_name == "app.services.create_item"
+                && e.metadata.get("imported_symbols") == Some(&json!(["create_item"]))
+                && e.metadata.get("from_module") == Some(&json!("app.services"))
+        }));
+        assert!(edges.iter().any(|e| {
+            e.metadata.get("reference_kind") == Some(&json!("http_route_handler"))
+                && e.metadata.get("http_method") == Some(&json!("POST"))
+                && e.metadata.get("norm_path") == Some(&json!("/api/items/:param"))
+                && e.metadata.get("handler_symbol") == Some(&json!("app.routes.post_item"))
+        }));
+        assert!(edges.iter().any(|e| {
+            e.metadata.get("reference_kind") == Some(&json!("http_route_client"))
+                && e.metadata.get("http_method") == Some(&json!("POST"))
+                && e.metadata.get("norm_path") == Some(&json!("/api/items/123"))
+        }));
     }
 }

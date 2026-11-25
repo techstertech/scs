@@ -888,6 +888,7 @@ version = "0.6.1"
 dependencies = [
  "scs-core",
  "serde",
+ "serde_json",
  "tree-sitter",
  "tree-sitter-bash",
  "tree-sitter-css",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Iterator
+import hashlib
 from heapq import nsmallest
 from pathlib import Path
 from time import perf_counter
@@ -11,6 +12,7 @@ from typing import cast
 
 from scs.graph.models import SYMBOL_NODE_TYPES, Edge, Node, NodeType, RelationshipType
 from scs.graph.native import NativeGraph
+from scs.indexing.git_diff import collect_git_dirty_paths
 from scs.indexing.jobs import (
     ACTIVE_JOB_STATUSES,
     IngestionJob,
@@ -27,21 +29,11 @@ from scs.indexing.search import (
 )
 from scs.providers.base import EmbeddingProvider, RerankingProvider
 from scs.source_paths import validated_source_path
-from scs.services.impact import ChangedRange, changed_symbol_impact
+from scs.services.impact import ChangedRange, changed_symbol_impact, is_test_path
 
 GraphForRepository = Callable[[str], NativeGraph | None]
 BindingForRepository = Callable[[str], tuple[str, str] | None]
 
-TEST_PATH_MARKERS = (
-    "tests/",
-    "test/",
-    "test_",
-    "_test.",
-    ".test.",
-    "Tests.swift",
-    "Test.java",
-    "Tests.java",
-)
 DEPENDENCY_RELATIONSHIPS = frozenset(
     {
         RelationshipType.CALLS,
@@ -300,6 +292,7 @@ class SCSServiceRoutes:
         reranker: Callable[[], RerankingProvider | None] | None = None,
         graph_for_repository: GraphForRepository | None = None,
         binding_for_repository: BindingForRepository | None = None,
+        on_job_enqueued: Callable[[], None] | None = None,
     ) -> None:
         self._graph: Callable[[], NativeGraph] = graph
         self._jobs: Callable[[], IngestionJobStore] = jobs
@@ -311,6 +304,7 @@ class SCSServiceRoutes:
         self._binding_for_repository: BindingForRepository | None = (
             binding_for_repository
         )
+        self._on_job_enqueued: Callable[[], None] | None = on_job_enqueued
 
     def _read_graph(self, repo_path: object) -> NativeGraph | None:
         """Resolve an existing project graph without registering a repository."""
@@ -722,6 +716,90 @@ class SCSServiceRoutes:
         relationship = _string(params, "relationship")
         related: list[dict[str, object]] = []
         directions = ("outgoing", "incoming") if direction == "both" else (direction,)
+
+        seed_ids = [match.id for match in matches]
+        incident_by_seed: dict[str, list[Edge]] = await asyncio.to_thread(
+            graph.batch_get_edges_sync, seed_ids, direction=direction
+        )
+
+        owner_file_ids: dict[str, str] = {}
+        owner_files: dict[str, Node | None] = {}
+        owner_incoming_imports: dict[str, dict[str, Edge]] = {}
+        if "incoming" in directions and relationship == RelationshipType.IMPORTS.value:
+            for match in matches:
+                if match.type is not NodeType.FILE:
+                    owner_fid = await asyncio.to_thread(
+                        self._containing_file_id_sync, graph, match
+                    )
+                    if owner_fid is not None:
+                        owner_file_ids[match.id] = owner_fid
+            if owner_file_ids:
+                unique_owner_ids = list(dict.fromkeys(owner_file_ids.values()))
+                owner_nodes = await asyncio.to_thread(
+                    graph.batch_get_nodes_sync, unique_owner_ids
+                )
+                for owner_node in owner_nodes:
+                    owner_files[owner_node.id] = owner_node
+                owner_edges = await asyncio.to_thread(
+                    graph.batch_get_edges_sync, unique_owner_ids, direction="incoming"
+                )
+                for owner_fid, edge_list in owner_edges.items():
+                    by_source: dict[str, Edge] = {}
+                    for edge in edge_list:
+                        if (
+                            edge.relationship == RelationshipType.IMPORTS.value
+                            and edge.target_id == owner_fid
+                        ):
+                            by_source[edge.source_id] = edge
+                    owner_incoming_imports[owner_fid] = by_source
+
+        def _best_direct_edge(
+            seed_id: str, target_node_id: str, active_dir: str
+        ) -> Edge | None:
+            candidates: list[Edge] = []
+            for edge in incident_by_seed.get(seed_id, []):
+                if relationship is not None and edge.relationship != relationship:
+                    continue
+                if active_dir == "incoming":
+                    matches_end = edge.target_id == seed_id and edge.source_id == target_node_id
+                else:
+                    matches_end = edge.source_id == seed_id and edge.target_id == target_node_id
+                if matches_end:
+                    candidates.append(edge)
+            if not candidates:
+                return None
+            priority = {
+                RelationshipType.CALLS.value: 0,
+                RelationshipType.REFERENCES.value: 1,
+                RelationshipType.INHERITS.value: 2,
+                RelationshipType.IMPLEMENTS.value: 3,
+                RelationshipType.IMPORTS.value: 4,
+            }
+            return min(
+                candidates,
+                key=lambda e: (priority.get(e.relationship, 10), e.relationship, e.id),
+            )
+
+        def _attach_edge_metadata(
+            item: dict[str, object], edge: Edge | None
+        ) -> dict[str, object]:
+            if edge is None:
+                return item
+            enriched = dict(item)
+            enriched.setdefault("relationship", edge.relationship)
+            for key in (
+                "start_line",
+                "end_line",
+                "reference_kind",
+                "enclosing_symbol",
+                "sites",
+                "via_barrel",
+            ):
+                val = edge.metadata.get(key)
+                if val is not None:
+                    enriched[key] = val
+            return enriched
+
         for match in matches:
             for active_direction in directions:
                 traversal = await asyncio.to_thread(
@@ -736,19 +814,37 @@ class SCSServiceRoutes:
                     for item in traversal
                     if (item_id := self._related_item_node_id(item)) is not None
                 }
-                related.extend(
-                    {**item, "direction": active_direction, "seed_id": match.id}
-                    for item in traversal
-                )
+                for item in traversal:
+                    enriched_item = {
+                        **item,
+                        "direction": active_direction,
+                        "seed_id": match.id,
+                    }
+                    item_id = self._related_item_node_id(item)
+                    if item.get("depth") == 1 and item_id is not None:
+                        direct_edge = _best_direct_edge(
+                            match.id, item_id, active_direction
+                        )
+                        enriched_item = _attach_edge_metadata(
+                            enriched_item, direct_edge
+                        )
+                    related.append(enriched_item)
                 if (
                     active_direction == "incoming"
                     and relationship == RelationshipType.IMPORTS.value
                     and match.type is not NodeType.FILE
                 ):
-                    owner_file_id = await asyncio.to_thread(
-                        self._containing_file_id_sync, graph, match
-                    )
+                    owner_file_id = owner_file_ids.get(match.id)
                     if owner_file_id is not None:
+                        owner_node = owner_files.get(owner_file_id)
+                        owner_default = (
+                            owner_node.metadata.get("default_export")
+                            if owner_node is not None
+                            else None
+                        )
+                        imports_by_source = owner_incoming_imports.get(
+                            owner_file_id, {}
+                        )
                         file_traversal = await asyncio.to_thread(
                             graph.traverse_sync,
                             owner_file_id,
@@ -771,10 +867,42 @@ class SCSServiceRoutes:
                                 or item_id in seen_node_ids
                             ):
                                 continue
-                            seen_node_ids.add(item_id)
-                            related.append(
-                                {**item, "direction": active_direction, "seed_id": match.id}
+                            import_edge = (
+                                imports_by_source.get(item_id) if raw_depth == 1 else None
                             )
+                            if import_edge is not None:
+                                raw_syms = import_edge.metadata.get("imported_symbols")
+                                wildcard = bool(
+                                    import_edge.metadata.get("wildcard_import", False)
+                                )
+                                if (
+                                    isinstance(raw_syms, list)
+                                    and raw_syms
+                                    and not wildcard
+                                ):
+                                    imported_names = {
+                                        str(sym) for sym in cast(list[object], raw_syms)
+                                    }
+                                    matches_default = (
+                                        "default" in imported_names
+                                        and owner_default == match.name
+                                    )
+                                    if (
+                                        match.name not in imported_names
+                                        and not matches_default
+                                    ):
+                                        continue
+                            seen_node_ids.add(item_id)
+                            enriched_fallback = {
+                                **item,
+                                "direction": active_direction,
+                                "seed_id": match.id,
+                            }
+                            if import_edge is not None:
+                                enriched_fallback = _attach_edge_metadata(
+                                    enriched_fallback, import_edge
+                                )
+                            related.append(enriched_fallback)
         return {
             "symbol_name": symbol,
             "node_id": node_id,
@@ -957,6 +1085,124 @@ class SCSServiceRoutes:
         )
         return {"accepted": True, "job": job_to_dict(job)}
 
+    async def refresh_dirty_files(self, params: dict[str, object]) -> dict[str, object]:
+        """Hash-check dirty or anchor files and wait for single-writer re-indexing if stale."""
+
+        repo_path = _string(params, "repo_path", required=True)
+        assert repo_path is not None
+        canonical = canonicalize_repo_path(repo_path)
+        root = Path(canonical)
+        timeout_seconds = min(5.0, max(0.2, float(_bounded_seconds(params, "timeout_seconds") or 4.0)))
+        requested_paths = _string_list(params, "file_paths")
+        graph = self._read_graph(canonical)
+        if graph is None:
+            return {
+                "available": False,
+                "status": "unavailable",
+                "refreshed": [],
+                "deleted": [],
+                "degraded_reason": "index_unavailable",
+            }
+        rel_candidates: list[str] = []
+        if requested_paths:
+            for raw in requested_paths[:20]:
+                try:
+                    safe = Path(validated_source_path(raw, canonical, require_file=False))
+                    rel_candidates.append(safe.relative_to(root).as_posix())
+                except ValueError:
+                    continue
+        else:
+            rel_candidates = await asyncio.to_thread(
+                collect_git_dirty_paths, root, max_files=20
+            )
+        if not rel_candidates:
+            return {
+                "available": True,
+                "status": "fresh",
+                "refreshed": [],
+                "deleted": [],
+            }
+
+        hashes = await asyncio.to_thread(graph.get_all_ingested_files_sync, canonical)
+
+        def _detect_changes() -> tuple[list[str], list[str]]:
+            dirty: list[str] = []
+            deleted: list[str] = []
+            for rel in dict.fromkeys(rel_candidates):
+                target = root / rel
+                if target.is_file():
+                    try:
+                        if target.stat().st_size > 1_048_576:
+                            continue
+                        digest = hashlib.sha256(target.read_bytes()).hexdigest()
+                    except OSError:
+                        continue
+                    if hashes.get(rel) != digest:
+                        dirty.append(str(target))
+                elif rel in hashes:
+                    deleted.append(rel)
+            return dirty, deleted
+
+        dirty_files, deleted_paths = await asyncio.to_thread(_detect_changes)
+        if not dirty_files and not deleted_paths:
+            return {
+                "available": True,
+                "status": "fresh",
+                "refreshed": [],
+                "deleted": [],
+            }
+
+        try:
+            enqueued = await self.ingest_files(
+                {
+                    "repo_path": canonical,
+                    "file_paths": dirty_files,
+                    "deleted_paths": deleted_paths,
+                }
+            )
+            if self._on_job_enqueued is not None:
+                self._on_job_enqueued()
+        except ValueError as exc:
+            return {
+                "available": False,
+                "status": "unavailable",
+                "refreshed": [],
+                "deleted": [],
+                "degraded_reason": str(exc),
+            }
+        raw_job = cast(dict[str, object], enqueued["job"])
+        job_id = str(raw_job["id"])
+        wait = await self._wait_for_job(
+            repo_path=canonical,
+            job_id=job_id,
+            timeout_seconds=timeout_seconds,
+        )
+        if wait is not None and wait.get("outcome") == "terminal":
+            job_state = cast(dict[str, object] | None, wait.get("job"))
+            if job_state is not None and job_state.get("status") == "completed":
+                return {
+                    "available": True,
+                    "status": "refreshed",
+                    "refreshed": [
+                        Path(p).relative_to(root).as_posix() for p in dirty_files
+                    ],
+                    "deleted": deleted_paths,
+                }
+            return {
+                "available": True,
+                "status": "degraded",
+                "refreshed": [],
+                "deleted": [],
+                "degraded_reason": "refresh_failed",
+            }
+        return {
+            "available": True,
+            "status": "degraded",
+            "refreshed": [],
+            "deleted": [],
+            "degraded_reason": "refresh_timeout",
+        }
+
     async def composite_regression_risk(
         self, params: dict[str, object]
     ) -> dict[str, object]:
@@ -1027,30 +1273,46 @@ class SCSServiceRoutes:
             key=lambda edge: (edge.source_id, edge.target_id, edge.relationship),
         )
         dependent_ids = sorted({edge.source_id for edge in relevant_edges})
-        selected_dependent_ids = dependent_ids[:dependent_limit]
+        capped_dependent_ids = dependent_ids[:MAX_REGRESSION_RISK_LIMIT]
         hydration_started = perf_counter()
-        dependents = await asyncio.to_thread(
+        all_hydrated = await asyncio.to_thread(
             graph.batch_get_nodes_sync,
-            selected_dependent_ids,
+            capped_dependent_ids,
         )
         node_hydration_ms = _elapsed_ms(hydration_started)
         projection_started = perf_counter()
         evidence_by_dependent: dict[str, list[dict[str, object]]] = {}
         for edge in relevant_edges:
-            evidence_by_dependent.setdefault(edge.source_id, []).append(
-                {
-                    "dependent_node_id": edge.source_id,
-                    "affected_node_id": edge.target_id,
-                    "relationship": edge.relationship,
-                }
+            ev: dict[str, object] = {
+                "dependent_node_id": edge.source_id,
+                "affected_node_id": edge.target_id,
+                "relationship": edge.relationship,
+            }
+            for meta_key in (
+                "start_line",
+                "end_line",
+                "reference_kind",
+                "enclosing_symbol",
+                "via_barrel",
+            ):
+                val = edge.metadata.get(meta_key)
+                if val is not None:
+                    ev[meta_key] = val
+            evidence_by_dependent.setdefault(edge.source_id, []).append(ev)
+
+        def _dependent_rank(node: Node) -> tuple[int, str, str]:
+            evs = evidence_by_dependent.get(node.id, [])
+            only_imports = bool(evs) and all(
+                e.get("relationship") == RelationshipType.IMPORTS.value for e in evs
             )
+            return (1 if only_imports else 0, str(node.metadata.get("file_path", "")), node.id)
+
+        ranked_dependents = sorted(all_hydrated, key=_dependent_rank)
+        dependents = ranked_dependents[:dependent_limit]
         test_dependents = [
             node
-            for node in dependents
-            if any(
-                marker in str(node.metadata.get("file_path", ""))
-                for marker in TEST_PATH_MARKERS
-            )
+            for node in ranked_dependents
+            if is_test_path(str(node.metadata.get("file_path", "")))
         ]
         test_target_paths = sorted(
             {
@@ -1073,7 +1335,7 @@ class SCSServiceRoutes:
             for path in selected_test_paths
         ]
         projection_ms = _elapsed_ms(projection_started)
-        dependents_truncated = len(dependent_ids) > len(selected_dependent_ids)
+        dependents_truncated = len(dependent_ids) > len(dependents)
         test_targets_truncated = len(test_target_paths) > len(selected_test_paths)
         return {
             "file_paths": raw_paths,
@@ -1132,17 +1394,29 @@ class SCSServiceRoutes:
         edges = await asyncio.to_thread(
             graph.get_edges_sync, node.id, direction="incoming"
         )
-        references = [
-            related
-            for edge in edges
-            if (related := await asyncio.to_thread(graph.get_node_sync, edge.source_id))
-            is not None
-        ]
+        references: list[dict[str, object]] = []
+        for edge in edges:
+            related = await asyncio.to_thread(graph.get_node_sync, edge.source_id)
+            if related is None:
+                continue
+            item = _node_dict(related)
+            item["relationship"] = edge.relationship
+            for meta_key in (
+                "start_line",
+                "end_line",
+                "reference_kind",
+                "enclosing_symbol",
+                "sites",
+            ):
+                val = edge.metadata.get(meta_key)
+                if val is not None:
+                    item[meta_key] = val
+            references.append(item)
         return {
             "available": True,
             "source": "index",
             "symbol": _node_dict(node),
-            "references": [_node_dict(item) for item in references],
+            "references": references,
         }
 
     async def _indexed_location(

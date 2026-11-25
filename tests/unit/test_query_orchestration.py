@@ -552,3 +552,184 @@ async def test_references_playbook_forwards_file_paths_with_symbol_name(
         assert method == "knowledge.related"
         assert params["symbol_name"] == "Button"
         assert params["file_paths"] == ["Button.tsx"]
+
+
+@pytest.mark.asyncio
+async def test_explicit_playbook_override_skips_classifier_and_rejects_ineligible(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "Button.tsx").write_text("export function Button() {}\n")
+    provider = FixedProvider(Playbook.DISCOVER)
+    routes = FakeRoutes()
+    query = QueryOrchestrator(provider=provider, call=routes.call)
+
+    explicit_result = await query.query(
+        {
+            "goal": "Inspect anything",
+            "repo_path": str(tmp_path),
+            "symbol_name": "Button",
+            "playbook": "REFERENCES",
+        }
+    )
+
+    assert explicit_result["routing"]["playbook"] == "REFERENCES"
+    assert explicit_result["routing"]["provider"] == "explicit"
+    assert explicit_result["timings"]["classification_ms"] == 0.0
+    assert provider.calls == 0
+
+    fallback_result = await query.query(
+        {
+            "goal": "List inventory",
+            "repo_path": str(tmp_path),
+            "node_type": "file",
+            "playbook": "INVENTORY",
+        }
+    )
+
+    assert fallback_result["routing"]["playbook"] == "DISCOVER"
+    assert fallback_result["routing"]["fallback_applied"] is True
+    assert fallback_result["routing"]["degraded_reason"] == "ineligible_playbook"
+    assert provider.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_high_fan_in_enforces_limit_total_counts_truncated_and_specificity(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "app.ts").write_text("export function createAppDocument() {}\n")
+
+    coarse_items: list[dict[str, object]] = []
+    for idx in range(15):
+        path = (
+            f"tests/case_{idx}.browser.spec.mjs"
+            if idx < 5
+            else f"src/coarse_{idx}.ts"
+        )
+        coarse_items.append(
+            {
+                "id": f"coarse_edge_{idx}",
+                "seed_id": "target_doc",
+                "depth": 1,
+                "relationship": "imports",
+                "reference_kind": "imports",
+                "node": {
+                    "id": f"file_{idx}",
+                    "name": path,
+                    "type": "FILE",
+                    "file_path": path,
+                },
+            }
+        )
+
+    call_items: list[dict[str, object]] = []
+    for idx in range(15):
+        path = (
+            f"tests/direct_{idx}.test.mjs"
+            if idx < 4
+            else f"src/caller_{idx}.ts"
+        )
+        call_items.append(
+            {
+                "id": f"call_edge_{idx}",
+                "seed_id": "target_doc",
+                "depth": 1,
+                "relationship": "calls",
+                "reference_kind": "calls",
+                "enclosing_symbol": f"useDoc_{idx}",
+                "start_line": 10 + idx,
+                "end_line": 10 + idx,
+                "node": {
+                    "id": f"call_{idx}",
+                    "name": f"useDoc_{idx}",
+                    "type": "FUNCTION",
+                    "file_path": path,
+                    "start_line": 10 + idx,
+                    "end_line": 12 + idx,
+                },
+            }
+        )
+
+    async def fake_call(method: str, params: dict[str, object]) -> dict[str, object]:
+        assert method == "knowledge.related"
+        rel = params.get("relationship")
+        related = (
+            coarse_items
+            if rel == "imports"
+            else call_items
+            if rel == "calls"
+            else []
+        )
+        return {
+            "matches": [
+                {
+                    "id": "target_doc",
+                    "name": "createAppDocument",
+                    "type": "FUNCTION",
+                    "file_path": "app.ts",
+                    "start_line": 0,
+                    "end_line": 0,
+                }
+            ],
+            "related": related,
+        }
+
+    provider = FixedProvider(Playbook.DISCOVER)
+    query = QueryOrchestrator(provider=provider, call=fake_call)
+
+    result = await query.query(
+        {
+            "goal": "References to createAppDocument",
+            "repo_path": str(tmp_path),
+            "symbol_name": "createAppDocument",
+            "playbook": "REFERENCES",
+            "limit": 5,
+        }
+    )
+
+    refs = result["evidence"]["references"]
+    test_targets = result["evidence"]["test_targets"]
+    assert len(refs) == 5
+    assert all(ref["reference_kind"] == "calls" for ref in refs)
+    assert all(ref["start_line"] is not None for ref in refs)
+    assert len(test_targets) == 5
+    assert str(test_targets[0]["file_path"]).endswith(".test.mjs")
+    assert result["truncated"] is True
+    assert result["total_counts"]["references"] == 30
+    assert result["total_counts"]["test_targets"] == 9
+
+
+@pytest.mark.asyncio
+async def test_diff_impact_on_clean_git_repo_records_empty_impact(tmp_path: Path) -> None:
+    import subprocess
+
+    for args in (
+        ["git", "init"],
+        ["git", "config", "user.name", "Test User"],
+        ["git", "config", "user.email", "test@example.com"],
+    ):
+        subprocess.run(args, cwd=tmp_path, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    (tmp_path / "mod.py").write_text("def clean_fn():\n    return 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "mod.py"], cwd=tmp_path, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    routes = FakeRoutes()
+    query = QueryOrchestrator(provider=FixedProvider(Playbook.DISCOVER), call=routes.call)
+
+    result = await query.query(
+        {
+            "goal": "Assess current diff impact",
+            "repo_path": str(tmp_path),
+            "playbook": "IMPACT",
+            "diff_impact": True,
+        }
+    )
+
+    assert result["routing"]["playbook"] == "IMPACT"
+    assert result["complete"] is True
+    assert result["degraded_stages"] == []
+    assert result["evidence"]["test_targets"] == []
+    stages = {step["stage"]: step for step in result["trace"]}
+    assert stages["git_diff"]["status"] == "ok"
+    assert stages["git_diff"]["counts"] == {"ranges": 0, "files": 0}
+    assert stages["impact"]["counts"] == {"dependents": 0, "test_targets": 0}
+

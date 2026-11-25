@@ -4,9 +4,10 @@
 //! regardless of the source language. This allows the ingestion pipeline
 //! to treat all languages uniformly.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use tree_sitter::Node;
 
 use scs_core::node_types::NodeType;
@@ -30,6 +31,66 @@ pub const RAW_TEXT_SMALL_LIMIT: usize = 512;
 pub const SIGNATURE_LIMIT: usize = RAW_TEXT_SMALL_LIMIT;
 /// Max bytes for docstrings in embed_text output.
 pub const DOCSTRING_LIMIT: usize = 1024;
+/// Maximum number of per-site line records retained in a single edge's metadata.
+pub const MAX_SITES_PER_EDGE: usize = 16;
+
+/// Normalize an HTTP route or client request path for cross-boundary matching.
+///
+/// Only accepts local paths starting with `/` (rejecting protocol-relative `//`),
+/// strips query strings and fragments, normalizes `:param`, `{param}`, and
+/// `${...}` segments to `:param`, and strips trailing slashes except for `/`.
+pub fn normalize_http_path(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    let path_only = if trimmed.starts_with('/') && !trimmed.starts_with("//") {
+        trimmed
+    } else if let Some(rest) = trimmed
+        .strip_prefix("http://localhost")
+        .or_else(|| trimmed.strip_prefix("https://localhost"))
+        .or_else(|| trimmed.strip_prefix("http://127.0.0.1"))
+        .or_else(|| trimmed.strip_prefix("https://127.0.0.1"))
+    {
+        if let Some(idx) = rest.find('/') {
+            &rest[idx..]
+        } else {
+            return None;
+        }
+    } else {
+        return None;
+    };
+
+    let without_query = path_only
+        .split('?')
+        .next()
+        .unwrap_or("")
+        .split('#')
+        .next()
+        .unwrap_or("")
+        .trim();
+    if !without_query.starts_with('/') || without_query.starts_with("//") {
+        return None;
+    }
+
+    let mut segments: Vec<&str> = Vec::new();
+    for seg in without_query.split('/') {
+        if seg.is_empty() {
+            continue;
+        }
+        if seg.starts_with(':')
+            || (seg.starts_with('{') && seg.ends_with('}'))
+            || (seg.starts_with("${") && seg.ends_with('}'))
+        {
+            segments.push(":param");
+        } else {
+            segments.push(seg);
+        }
+    }
+
+    if segments.is_empty() {
+        Some("/".to_string())
+    } else {
+        Some(format!("/{}", segments.join("/")))
+    }
+}
 
 /// Truncate a string to at most `max_bytes` without splitting a multi-byte
 /// UTF-8 character. Always returns a valid `&str`.
@@ -305,27 +366,100 @@ pub fn count_complexity(node: &Node, source: &[u8], language: &str) -> u32 {
     1 + count
 }
 
-/// Extract the simple callee name from a call expression node.
-///
-/// Navigates language-specific child structures to find the rightmost
-/// identifier — the actual function/method name being called.
-/// Returns `None` for patterns we can't resolve (e.g., computed calls).
-fn extract_callee_name(node: &Node, source: &[u8], language: &str) -> Option<String> {
+/// A single call expression occurrence extracted from an AST body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallSite {
+    pub name: String,
+    pub qualifier: Option<String>,
+    pub start_line: usize,
+    pub end_line: usize,
+}
+
+fn dotted_receiver_qualifier(node: &Node, source: &[u8], language: &str) -> Option<String> {
+    let text_of = |n: &Node| -> &str {
+        std::str::from_utf8(&source[n.start_byte()..n.end_byte()]).unwrap_or("")
+    };
+    let valid_text = |n: &Node| -> Option<String> {
+        let raw = text_of(n).trim();
+        if raw.is_empty()
+            || raw.len() > 128
+            || raw.contains('(')
+            || raw.contains('[')
+            || raw.contains('\n')
+            || raw.chars().any(char::is_whitespace)
+        {
+            return None;
+        }
+        Some(raw.to_string())
+    };
+    match language {
+        "typescript" | "javascript" | "tsx" | "jsx" => match node.kind() {
+            "identifier" | "this" | "super" => valid_text(node),
+            "member_expression" => {
+                let obj = node.child_by_field_name("object")?;
+                let prop = node.child_by_field_name("property")?;
+                if !matches!(
+                    prop.kind(),
+                    "property_identifier" | "identifier" | "private_property_identifier"
+                ) {
+                    return None;
+                }
+                let prefix = dotted_receiver_qualifier(&obj, source, language)?;
+                let prop_text = valid_text(&prop)?;
+                let combined = format!("{prefix}.{prop_text}");
+                (combined.len() <= 128).then_some(combined)
+            }
+            _ => None,
+        },
+        "python" => match node.kind() {
+            "identifier" => valid_text(node),
+            "attribute" => {
+                let obj = node.child_by_field_name("object")?;
+                let attr = node.child_by_field_name("attribute")?;
+                let prefix = dotted_receiver_qualifier(&obj, source, language)?;
+                let attr_text = valid_text(&attr)?;
+                let combined = format!("{prefix}.{attr_text}");
+                (combined.len() <= 128).then_some(combined)
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Extract the simple callee name and optional receiver qualifier from a call expression node.
+fn extract_callee_info(node: &Node, source: &[u8], language: &str) -> Option<(String, Option<String>)> {
     let text_of = |n: &Node| -> &str {
         std::str::from_utf8(&source[n.start_byte()..n.end_byte()]).unwrap_or("")
     };
 
     match language {
         "python" => {
-            // Python `call` node: child named "function" is the callee.
+            if let Some(func) = node.child_by_field_name("function") {
+                match func.kind() {
+                    "identifier" => return Some((text_of(&func).to_string(), None)),
+                    "attribute" => {
+                        let method = func
+                            .child_by_field_name("attribute")
+                            .map(|attr| text_of(&attr).to_string());
+                        let qualifier = func
+                            .child_by_field_name("object")
+                            .and_then(|obj| dotted_receiver_qualifier(&obj, source, language));
+                        if let Some(name) = method {
+                            return Some((name, qualifier));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            // Fallback walk for alternate node child layout.
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
                 match child.kind() {
                     "identifier" if child == node.child(0)? => {
-                        return Some(text_of(&child).to_string());
+                        return Some((text_of(&child).to_string(), None));
                     }
                     "attribute" => {
-                        // obj.method() — take the rightmost identifier.
                         let mut attr_cursor = child.walk();
                         let mut last_ident = None;
                         for sub in child.children(&mut attr_cursor) {
@@ -333,7 +467,10 @@ fn extract_callee_name(node: &Node, source: &[u8], language: &str) -> Option<Str
                                 last_ident = Some(text_of(&sub).to_string());
                             }
                         }
-                        return last_ident;
+                        let qualifier = child
+                            .child_by_field_name("object")
+                            .and_then(|obj| dotted_receiver_qualifier(&obj, source, language));
+                        return last_ident.map(|name| (name, qualifier));
                     }
                     _ => {}
                 }
@@ -341,26 +478,47 @@ fn extract_callee_name(node: &Node, source: &[u8], language: &str) -> Option<Str
             None
         }
         "typescript" | "javascript" | "tsx" | "jsx" => {
-            // TS/JS `call_expression`: first child is the callee.
-            let callee = node.child(0)?;
+            if node.kind() == "new_expression" {
+                let ctor = node
+                    .child_by_field_name("constructor")
+                    .or_else(|| node.named_child(0))?;
+                return match ctor.kind() {
+                    "identifier" | "type_identifier" => Some((text_of(&ctor).to_string(), None)),
+                    "member_expression" => {
+                        let prop = ctor.child_by_field_name("property")?;
+                        let qualifier = ctor
+                            .child_by_field_name("object")
+                            .and_then(|obj| dotted_receiver_qualifier(&obj, source, language));
+                        Some((text_of(&prop).to_string(), qualifier))
+                    }
+                    _ => None,
+                };
+            }
+            let callee = node
+                .child_by_field_name("function")
+                .or_else(|| node.child(0))?;
             match callee.kind() {
-                "identifier" => Some(text_of(&callee).to_string()),
+                "identifier" => Some((text_of(&callee).to_string(), None)),
                 "member_expression" => {
-                    // obj.method() — find the property identifier.
+                    let qualifier = callee
+                        .child_by_field_name("object")
+                        .and_then(|obj| dotted_receiver_qualifier(&obj, source, language));
+                    if let Some(prop) = callee.child_by_field_name("property") {
+                        return Some((text_of(&prop).to_string(), qualifier));
+                    }
                     let mut cursor = callee.walk();
                     for child in callee.children(&mut cursor) {
                         if child.kind() == "property_identifier" {
-                            return Some(text_of(&child).to_string());
+                            return Some((text_of(&child).to_string(), qualifier));
                         }
                     }
                     None
                 }
                 "new_expression" => {
-                    // new Foo() — extract the constructor name.
                     let mut cursor = callee.walk();
                     for child in callee.children(&mut cursor) {
                         if child.kind() == "identifier" {
-                            return Some(text_of(&child).to_string());
+                            return Some((text_of(&child).to_string(), None));
                         }
                     }
                     None
@@ -369,22 +527,19 @@ fn extract_callee_name(node: &Node, source: &[u8], language: &str) -> Option<Str
             }
         }
         "rust" => {
-            // Rust `call_expression`: first child is the callee.
             let callee = node.child(0)?;
             match callee.kind() {
-                "identifier" => Some(text_of(&callee).to_string()),
+                "identifier" => Some((text_of(&callee).to_string(), None)),
                 "field_expression" => {
-                    // obj.method() — find field_identifier.
                     let mut cursor = callee.walk();
                     for child in callee.children(&mut cursor) {
                         if child.kind() == "field_identifier" {
-                            return Some(text_of(&child).to_string());
+                            return Some((text_of(&child).to_string(), None));
                         }
                     }
                     None
                 }
                 "scoped_identifier" => {
-                    // Type::method() — take the last identifier segment.
                     let mut cursor = callee.walk();
                     let mut last_ident = None;
                     for child in callee.children(&mut cursor) {
@@ -392,7 +547,7 @@ fn extract_callee_name(node: &Node, source: &[u8], language: &str) -> Option<Str
                             last_ident = Some(text_of(&child).to_string());
                         }
                     }
-                    last_ident
+                    last_ident.map(|name| (name, None))
                 }
                 _ => None,
             }
@@ -400,19 +555,19 @@ fn extract_callee_name(node: &Node, source: &[u8], language: &str) -> Option<Str
         "go" => {
             let callee = node.child_by_field_name("function")?;
             match callee.kind() {
-                "identifier" => Some(text_of(&callee).to_string()),
+                "identifier" => Some((text_of(&callee).to_string(), None)),
                 "selector_expression" => callee
                     .child_by_field_name("field")
-                    .map(|field| text_of(&field).to_string()),
+                    .map(|field| (text_of(&field).to_string(), None)),
                 "index_expression" | "generic_type" => callee
                     .child_by_field_name("operand")
                     .or_else(|| callee.child_by_field_name("function"))
                     .or_else(|| callee.named_child(0))
                     .and_then(|inner| match inner.kind() {
-                        "identifier" => Some(text_of(&inner).to_string()),
+                        "identifier" => Some((text_of(&inner).to_string(), None)),
                         "selector_expression" => inner
                             .child_by_field_name("field")
-                            .map(|field| text_of(&field).to_string()),
+                            .map(|field| (text_of(&field).to_string(), None)),
                         _ => None,
                     }),
                 _ => None,
@@ -421,28 +576,24 @@ fn extract_callee_name(node: &Node, source: &[u8], language: &str) -> Option<Str
         "java" => match node.kind() {
             "method_invocation" => node
                 .child_by_field_name("name")
-                .map(|name| text_of(&name).to_string()),
+                .map(|name| (text_of(&name).to_string(), None)),
             "object_creation_expression" => node
                 .child_by_field_name("type")
                 .and_then(|ty| java::normalize_java_type_name(ty, source))
-                .map(|ty| ty.rsplit('.').next().unwrap_or(&ty).to_string()),
+                .map(|ty| (ty.rsplit('.').next().unwrap_or(&ty).to_string(), None)),
             _ => None,
         },
         "swift" => {
-            // Swift `call_expression`: first child is the callee.
             let callee = node.child(0)?;
             match callee.kind() {
-                "simple_identifier" => Some(text_of(&callee).to_string()),
+                "simple_identifier" => Some((text_of(&callee).to_string(), None)),
                 "navigation_expression" => {
-                    // obj.method() — extract the method name from navigation_suffix.
-                    // AST: navigation_expression -> [self_expression, navigation_suffix -> [., simple_identifier]]
                     let mut cursor = callee.walk();
                     let mut last_ident = None;
                     for child in callee.children(&mut cursor) {
                         if child.kind() == "simple_identifier" {
                             last_ident = Some(text_of(&child).to_string());
                         } else if child.kind() == "navigation_suffix" {
-                            // The simple_identifier lives inside navigation_suffix.
                             let mut sub_cursor = child.walk();
                             for sub in child.children(&mut sub_cursor) {
                                 if sub.kind() == "simple_identifier" {
@@ -451,20 +602,18 @@ fn extract_callee_name(node: &Node, source: &[u8], language: &str) -> Option<Str
                             }
                         }
                     }
-                    last_ident
+                    last_ident.map(|name| (name, None))
                 }
                 _ => None,
             }
         }
         "elixir" => {
-            // Elixir `call` node: first child is identifier or dot.
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
                 if child.kind() == "identifier" {
-                    return Some(text_of(&child).to_string());
+                    return Some((text_of(&child).to_string(), None));
                 }
                 if child.kind() == "dot" {
-                    // Module.function() — extract rightmost identifier.
                     let mut dot_cursor = child.walk();
                     let mut last_ident = None;
                     for sub in child.children(&mut dot_cursor) {
@@ -472,7 +621,7 @@ fn extract_callee_name(node: &Node, source: &[u8], language: &str) -> Option<Str
                             last_ident = Some(text_of(&sub).to_string());
                         }
                     }
-                    return last_ident;
+                    return last_ident.map(|name| (name, None));
                 }
             }
             None
@@ -481,18 +630,13 @@ fn extract_callee_name(node: &Node, source: &[u8], language: &str) -> Option<Str
     }
 }
 
-/// Extract unique callee names from a function/method body.
-///
-/// Walks all descendants of the given node via depth-first cursor traversal,
-/// looking for language-specific call expression nodes and extracting the
-/// callee's simple name. Returns a deduplicated set of names, excluding
-/// names present in the provided blocklist.
-pub fn extract_calls(
+/// Extract call expression sites with 0-based line spans from a function/method body.
+pub fn extract_call_sites(
     node: &Node,
     source: &[u8],
     language: &str,
     blocklist: &HashSet<&str>,
-) -> HashSet<String> {
+) -> Vec<CallSite> {
     let call_kinds: &[&str] = match language {
         "python" => &["call"],
         "typescript" | "javascript" | "tsx" | "jsx" => &["call_expression", "new_expression"],
@@ -501,10 +645,10 @@ pub fn extract_calls(
         "java" => &["method_invocation", "object_creation_expression"],
         "swift" => &["call_expression"],
         "elixir" => &["call"],
-        _ => return HashSet::new(),
+        _ => return Vec::new(),
     };
 
-    let mut callees = HashSet::new();
+    let mut sites = Vec::new();
     let mut cursor = node.walk();
     let mut reached_root = false;
 
@@ -512,14 +656,18 @@ pub fn extract_calls(
         let n = cursor.node();
 
         if call_kinds.contains(&n.kind()) {
-            if let Some(name) = extract_callee_name(&n, source, language) {
+            if let Some((name, qualifier)) = extract_callee_info(&n, source, language) {
                 if !name.is_empty() && !blocklist.contains(name.as_str()) {
-                    callees.insert(name);
+                    sites.push(CallSite {
+                        name,
+                        qualifier,
+                        start_line: n.start_position().row,
+                        end_line: n.end_position().row,
+                    });
                 }
             }
         }
 
-        // Depth-first traversal via tree-sitter cursor (same pattern as count_complexity).
         if cursor.goto_first_child() {
             continue;
         }
@@ -540,7 +688,91 @@ pub fn extract_calls(
         }
     }
 
-    callees
+    sites
+}
+
+/// Group extracted call sites by callee name into deduplicated `"calls"` edges with line metadata.
+pub fn build_call_edges(enclosing_qname: &str, sites: Vec<CallSite>) -> Vec<ParsedEdge> {
+    let mut grouped: HashMap<String, Vec<CallSite>> = HashMap::new();
+    for site in sites {
+        grouped.entry(site.name.clone()).or_default().push(site);
+    }
+
+    let mut names: Vec<String> = grouped.keys().cloned().collect();
+    names.sort();
+
+    names
+        .into_iter()
+        .map(|target| {
+            let mut callee_sites = grouped.remove(&target).unwrap_or_default();
+            callee_sites.sort_by(|a, b| {
+                (a.start_line, a.end_line, a.qualifier.as_deref().unwrap_or(""))
+                    .cmp(&(b.start_line, b.end_line, b.qualifier.as_deref().unwrap_or("")))
+            });
+            callee_sites.dedup_by(|a, b| {
+                a.start_line == b.start_line
+                    && a.end_line == b.end_line
+                    && a.qualifier == b.qualifier
+            });
+
+            let mut qualifiers: Vec<String> = Vec::new();
+            for site in &callee_sites {
+                if let Some(q) = &site.qualifier {
+                    if !qualifiers.contains(q) {
+                        qualifiers.push(q.clone());
+                    }
+                }
+            }
+
+            let mut meta = HashMap::new();
+            meta.insert("reference_kind".to_string(), json!("calls"));
+            meta.insert(
+                "enclosing_symbol".to_string(),
+                json!(enclosing_qname),
+            );
+            if let Some(first) = callee_sites.first() {
+                meta.insert("start_line".to_string(), json!(first.start_line));
+                meta.insert("end_line".to_string(), json!(first.end_line));
+            }
+            if let Some(first_q) = qualifiers.first() {
+                meta.insert("qualifier".to_string(), json!(first_q));
+            }
+            if qualifiers.len() > 1 {
+                meta.insert("qualifiers".to_string(), json!(qualifiers));
+            }
+
+            let site_entries: Vec<Value> = callee_sites
+                .into_iter()
+                .take(MAX_SITES_PER_EDGE)
+                .map(|site| {
+                    let mut entry = serde_json::Map::new();
+                    entry.insert("start_line".to_string(), json!(site.start_line));
+                    entry.insert("end_line".to_string(), json!(site.end_line));
+                    entry.insert("reference_kind".to_string(), json!("calls"));
+                    if let Some(q) = site.qualifier {
+                        entry.insert("qualifier".to_string(), json!(q));
+                    }
+                    Value::Object(entry)
+                })
+                .collect();
+            meta.insert("sites".to_string(), Value::Array(site_entries));
+
+            ParsedEdge::with_metadata(enclosing_qname.to_string(), target, "calls", meta)
+        })
+        .collect()
+}
+
+/// Extract unique callee names from a function/method body.
+pub fn extract_calls(
+    node: &Node,
+    source: &[u8],
+    language: &str,
+    blocklist: &HashSet<&str>,
+) -> HashSet<String> {
+    extract_call_sites(node, source, language, blocklist)
+        .into_iter()
+        .map(|site| site.name)
+        .collect()
 }
 
 /// A code entity extracted from a source file via tree-sitter.
@@ -631,6 +863,8 @@ pub struct ParsedEdge {
     pub target_qualified_name: String,
     pub relationship: String,
     pub weight: f64,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, Value>,
 }
 
 impl ParsedEdge {
@@ -641,6 +875,23 @@ impl ParsedEdge {
             target_qualified_name: target,
             relationship: relationship.to_string(),
             weight: 1.0,
+            metadata: HashMap::new(),
+        }
+    }
+
+    /// Create a new edge with explicit metadata attributes.
+    pub fn with_metadata(
+        source: String,
+        target: String,
+        relationship: &str,
+        metadata: HashMap<String, Value>,
+    ) -> Self {
+        Self {
+            source_qualified_name: source,
+            target_qualified_name: target,
+            relationship: relationship.to_string(),
+            weight: 1.0,
+            metadata,
         }
     }
 }

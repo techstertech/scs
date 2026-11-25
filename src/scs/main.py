@@ -143,6 +143,7 @@ class SCSDaemon:
             graph_for_repository=self._lookup_graph,
             binding_for_repository=self._binding_for_repository,
             reranker=lambda: self._reranker,
+            on_job_enqueued=self._notify_runner,
         )
         self._decision_provider: DecisionProvider
         if (
@@ -755,6 +756,7 @@ class SCSDaemon:
             "knowledge.inspect_file": self._services.inspect_file,
             "knowledge.composite.regression_risk": self._services.composite_regression_risk,
             "lsp.references": self._services.lsp_references,
+            "knowledge.refresh_dirty": self._services.refresh_dirty_files,
         }
         handler = handlers.get(method)
         if handler is None:
@@ -831,6 +833,10 @@ class SCSDaemon:
             )
             await self._ensure_watcher(canonical)
             return {"accepted": True, "job": job_to_dict(job)}
+
+    def _notify_runner(self) -> None:
+        if self._runner is not None:
+            self._runner.notify()
 
     def _require_jobs(self) -> IngestionJobStore:
         jobs = self._jobs

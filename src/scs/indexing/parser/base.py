@@ -73,6 +73,7 @@ class ParsedEdge:
     target_qualified_name: str
     relationship: RelationshipType
     weight: float = 1.0
+    metadata: dict[str, object] = field(default_factory=dict)
 
 
 @runtime_checkable

@@ -69,7 +69,13 @@ class IngestionJobRunner:
         self._lease_seconds: float = lease_seconds
         self._owner: str = f"{socket.gethostname()}:{os.getpid()}:{id(self)}"
         self._stop: asyncio.Event = asyncio.Event()
+        self._wakeup: asyncio.Event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
+
+    def notify(self) -> None:
+        """Wake the background job loop immediately after new work is queued."""
+
+        self._wakeup.set()
 
     async def start(self) -> None:
         """Return immediately after scheduling stale-lease recovery and work."""
@@ -138,14 +144,28 @@ class IngestionJobRunner:
 
     async def _loop(self) -> None:
         while not self._stop.is_set():
+            self._wakeup.clear()
             if await self.run_once():
                 continue
+            stop_task = asyncio.create_task(self._stop.wait())
+            wake_task = asyncio.create_task(self._wakeup.wait())
             try:
-                await asyncio.wait_for(
-                    self._stop.wait(), timeout=self._poll_interval_seconds
+                _done, pending = await asyncio.wait(
+                    {stop_task, wake_task},
+                    timeout=self._poll_interval_seconds,
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
-            except TimeoutError:
-                pass
+                for task in pending:
+                    task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await task
+            except asyncio.CancelledError:
+                stop_task.cancel()
+                wake_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await stop_task
+                    await wake_task
+                raise
 
     async def _heartbeat(self, job_id: str) -> None:
         interval = max(1.0, min(30.0, self._lease_seconds / 3))

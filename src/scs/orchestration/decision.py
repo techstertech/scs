@@ -28,6 +28,7 @@ class DecisionProviderKind(StrEnum):
     EXTERNAL = "external"
     LOCAL = "local"
     DETERMINISTIC = "deterministic"
+    EXPLICIT = "explicit"
 
 
 PLAYBOOK_SELECTION_INSTRUCTIONS: Final[str] = (

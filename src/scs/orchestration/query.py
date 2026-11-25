@@ -13,8 +13,10 @@ from typing import ClassVar, Literal, TypedDict, cast
 from pydantic import ConfigDict, Field, model_validator
 
 from scs.graph.models import SYMBOL_NODE_TYPES, NodeType, RelationshipType
+from scs.indexing.git_diff import collect_git_diff_ranges
 from scs.orchestration.decision import (
     DecisionProvider,
+    DecisionProviderKind,
     DeterministicDecisionProvider,
     Playbook,
     RoutingDecision,
@@ -22,13 +24,46 @@ from scs.orchestration.decision import (
     SourcePosition,
     eligible_playbooks,
 )
+from scs.orchestration.snippets import hydrate_evidence_text
 from scs.source_paths import validated_source_path
-from scs.services.impact import ChangedRange
+from scs.services.impact import ChangedRange, is_test_path
 from scs.services.contracts import collect_contracts
 from scs.orchestration.coverage import AspectCoverage, investigation_coverage
 
 QueryMode = Literal["fast", "balanced", "thorough"]
+PlaybookName = Literal[
+    "DISCOVER",
+    "UNDERSTAND",
+    "RELATIONSHIPS",
+    "REFERENCES",
+    "INSPECT_FILES",
+    "IMPACT",
+    "INVENTORY",
+]
 ServiceCall = Callable[[str, dict[str, object]], Awaitable[dict[str, object]]]
+
+_LIMIT_BUCKETS = ("symbols", "files", "relationships", "references", "test_targets")
+_REF_KIND_TIER: dict[str, int] = {
+    "calls": 0,
+    "renders": 0,
+    "imports_named": 1,
+    "imports_default": 1,
+    "extends": 1,
+    "implements": 1,
+    "type_references": 1,
+    "http_route": 1,
+    "rpc_bridge": 1,
+    "imports_namespace": 2,
+    "reexports": 2,
+    "imports_side_effect": 3,
+}
+_REL_TYPE_TIER: dict[str, int] = {
+    RelationshipType.CALLS.value: 0,
+    RelationshipType.REFERENCES.value: 1,
+    RelationshipType.INHERITS.value: 1,
+    RelationshipType.IMPLEMENTS.value: 1,
+    RelationshipType.IMPORTS.value: 3,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +120,11 @@ class QueryRequest(RoutingRequest):
     limit: int = Field(default=10, ge=1, le=50)
     changed_ranges: list[ChangedRange] = Field(default_factory=list, max_length=100)
     contract_paths: list[str] = Field(default_factory=list, max_length=20)
+    playbook: PlaybookName | None = None
+    include_signatures: bool = False
+    include_snippets: bool = False
+    diff_impact: bool = False
+    refresh_dirty: bool = False
 
     @model_validator(mode="after")
     def _normalize_anchors(self) -> "QueryRequest":
@@ -144,6 +184,7 @@ class QueryCodeOutput(TypedDict):
     repo_path: str
     routing: dict[str, object]
     evidence: dict[str, list[dict[str, object]]]
+    total_counts: dict[str, int]
     trace: list[dict[str, object]]
     complete: bool
     truncated: bool
@@ -152,12 +193,26 @@ class QueryCodeOutput(TypedDict):
     investigation: dict[str, AspectCoverage]
 
 
+def _specificity_tier(item: dict[str, object]) -> int:
+    ref_kind = item.get("reference_kind")
+    if isinstance(ref_kind, str) and ref_kind in _REF_KIND_TIER:
+        return _REF_KIND_TIER[ref_kind]
+    rel = item.get("relationship")
+    if isinstance(rel, str) and rel in _REL_TYPE_TIER:
+        return _REL_TYPE_TIER[rel]
+    return 4
+
+
 def _node_evidence(
-    node: dict[str, object], *, kind: str, stage: str
+    node: dict[str, object],
+    *,
+    kind: str,
+    stage: str,
+    include_signatures: bool = False,
 ) -> dict[str, object]:
     metadata = node.get("metadata")
     attributes = cast(dict[str, object], metadata) if isinstance(metadata, dict) else {}
-    return {
+    projected: dict[str, object] = {
         "kind": kind,
         "id": str(node.get("id", "")),
         "name": str(node.get("name", "")),
@@ -167,6 +222,11 @@ def _node_evidence(
         "end_line": node.get("end_line", attributes.get("end_line")),
         "stage": stage,
     }
+    if include_signatures:
+        signature = node.get("signature", attributes.get("signature"))
+        if isinstance(signature, str) and signature:
+            projected["signature"] = signature
+    return projected
 
 
 def _objects(value: object) -> list[dict[str, object]]:
@@ -200,30 +260,6 @@ class QueryOrchestrator:
         request = QueryRequest.model_validate(params)
         budget = MODE_BUDGETS[request.mode]
         started = perf_counter()
-        if self._wait_until_ready is not None:
-            await self._wait_until_ready()
-        classification_started = perf_counter()
-        degraded_reason: str | None = None
-        try:
-            decision = await asyncio.wait_for(
-                self._provider.classify(request.routing_request()),
-                timeout=min(
-                    budget.classifier_seconds,
-                    self._classifier_timeout or budget.classifier_seconds,
-                ),
-            )
-            # A custom provider still has to cross the same strict boundary.
-            decision = RoutingDecision.model_validate(decision)
-        except Exception as error:
-            decision = await self._fallback.classify(request.routing_request())
-            degraded_reason = "classifier_timeout" if isinstance(error, TimeoutError) else "classifier_unavailable"
-        classification_ms = (perf_counter() - classification_started) * 1_000
-        intent = requested_playbook(request.goal)
-        selected = Playbook.IMPACT if request.changed_ranges else (intent or decision.playbook)
-        if selected not in eligible_playbooks(request) and intent is None:
-            selected = Playbook.DISCOVER
-            degraded_reason = "ineligible_playbook"
-
         evidence: dict[str, list[dict[str, object]]] = {
             key: [] for key in ("symbols", "files", "relationships", "references", "test_targets")
         }
@@ -231,6 +267,112 @@ class QueryOrchestrator:
         degraded_stages: list[str] = []
         truncated = False
         anchor_resolution: dict[str, object] = {"status": "not_needed", "candidates": []}
+        depth_hints: dict[tuple[str, ...], int] = {}
+        upstream_totals: dict[str, int] = {}
+
+        if request.diff_impact:
+            diff_started = perf_counter()
+            diff_result = await asyncio.to_thread(
+                collect_git_diff_ranges,
+                Path(request.repo_path),
+                timeout_seconds=min(budget.total_seconds / 2, 5.0),
+                max_files=20,
+                max_ranges=100,
+            )
+            diff_status = (
+                "degraded" if diff_result.degraded_reason is not None else "ok"
+            )
+            if diff_result.degraded_reason is not None:
+                degraded_stages.append("git_diff")
+            truncated = truncated or diff_result.truncated
+            trace.append(
+                {
+                    "stage": "git_diff",
+                    "status": diff_status,
+                    "counts": {
+                        "ranges": len(diff_result.ranges),
+                        "files": len(diff_result.file_paths),
+                    },
+                    "truncated": diff_result.truncated,
+                    "elapsed_ms": (perf_counter() - diff_started) * 1_000,
+                }
+            )
+            existing_range_keys = {
+                (r.file_path, r.start_line, r.end_line) for r in request.changed_ranges
+            }
+            for changed in diff_result.ranges:
+                if len(request.changed_ranges) >= 100:
+                    truncated = True
+                    break
+                r_key = (changed.file_path, changed.start_line, changed.end_line)
+                if r_key not in existing_range_keys:
+                    existing_range_keys.add(r_key)
+                    request.changed_ranges.append(
+                        ChangedRange(
+                            file_path=changed.file_path,
+                            start_line=changed.start_line,
+                            end_line=changed.end_line,
+                        )
+                    )
+            for rel_path in diff_result.file_paths:
+                if len(request.file_paths) >= 20:
+                    truncated = True
+                    break
+                if rel_path not in request.file_paths:
+                    request.file_paths.append(rel_path)
+
+        degraded_reason: str | None = None
+        classification_ms = 0.0
+        if request.playbook is not None:
+            explicit_playbook = Playbook(request.playbook)
+            decision = RoutingDecision(
+                playbook=explicit_playbook,
+                provider=DecisionProviderKind.EXPLICIT,
+                model="caller-override",
+                confidence=1.0,
+                probabilities={
+                    playbook: float(playbook is explicit_playbook)
+                    for playbook in Playbook
+                },
+            )
+            selected = explicit_playbook
+            if (
+                selected is Playbook.INVENTORY
+                and selected not in eligible_playbooks(request)
+            ):
+                selected = Playbook.DISCOVER
+                degraded_reason = "ineligible_playbook"
+        else:
+            if self._wait_until_ready is not None:
+                await self._wait_until_ready()
+            classification_started = perf_counter()
+            try:
+                decision = await asyncio.wait_for(
+                    self._provider.classify(request.routing_request()),
+                    timeout=min(
+                        budget.classifier_seconds,
+                        self._classifier_timeout or budget.classifier_seconds,
+                    ),
+                )
+                # A custom provider still has to cross the same strict boundary.
+                decision = RoutingDecision.model_validate(decision)
+            except Exception as error:
+                decision = await self._fallback.classify(request.routing_request())
+                degraded_reason = "classifier_timeout" if isinstance(error, TimeoutError) else "classifier_unavailable"
+            classification_ms = (perf_counter() - classification_started) * 1_000
+            intent = requested_playbook(request.goal)
+            selected = (
+                Playbook.IMPACT
+                if (request.changed_ranges or request.diff_impact)
+                else (intent or decision.playbook)
+            )
+            if (
+                selected not in eligible_playbooks(request)
+                and intent is None
+                and not request.diff_impact
+            ):
+                selected = Playbook.DISCOVER
+                degraded_reason = "ineligible_playbook"
 
         async def stage(
             name: str, method: str, arguments: dict[str, object]
@@ -298,7 +440,12 @@ class QueryOrchestrator:
                 },
             )
             nodes = _objects(response.get("results"))
-            self._append_nodes(evidence, nodes, "search")
+            self._append_nodes(
+                evidence,
+                nodes,
+                "search",
+                include_signatures=request.include_signatures,
+            )
             return nodes
 
         async def resolve(seeds: list[dict[str, object]], *, files: bool) -> bool:
@@ -359,7 +506,15 @@ class QueryOrchestrator:
                 "status": ("unavailable" if not discovery_available else
                            "resolved" if unambiguous else ("ambiguous" if choices else "missing")),
                 "scope": scope,
-                "candidates": [_node_evidence(node, kind="anchor", stage="resolve") for node in choices.values()],
+                "candidates": [
+                    _node_evidence(
+                        node,
+                        kind="anchor",
+                        stage="resolve",
+                        include_signatures=request.include_signatures,
+                    )
+                    for node in choices.values()
+                ],
             }
             trace.append({"stage": "resolve", "status": "ok" if unambiguous else "degraded",
                           "counts": {"candidates": len(choices)}, "truncated": False, "elapsed_ms": 0.0})
@@ -404,7 +559,12 @@ class QueryOrchestrator:
                     payload,
                 )
                 matches = _objects(response.get("matches"))
-                self._append_nodes(evidence, matches, stage_name)
+                self._append_nodes(
+                    evidence,
+                    matches,
+                    stage_name,
+                    include_signatures=request.include_signatures,
+                )
                 matched_seed_id = (
                     identities[0] if identities
                     else next((match.get("id") for match in matches if match.get("id")), None)
@@ -416,132 +576,268 @@ class QueryOrchestrator:
                     raw_node = item.get("node")
                     if isinstance(raw_node, dict):
                         node = cast(dict[str, object], raw_node)
-                        self._append_nodes(evidence, [node], stage_name)
+                        if incoming:
+                            rel_file = self._file_path(node)
+                            if node.get("type") == NodeType.FILE.value:
+                                evidence["files"].append(
+                                    {
+                                        "kind": "file",
+                                        "id": node.get("id"),
+                                        "file_path": rel_file,
+                                        "stage": stage_name,
+                                    }
+                                )
+                            elif isinstance(rel_file, str) and rel_file:
+                                evidence["files"].append(
+                                    {
+                                        "kind": "file",
+                                        "file_path": rel_file,
+                                        "stage": stage_name,
+                                    }
+                                )
+                        else:
+                            self._append_nodes(
+                                evidence,
+                                [node],
+                                stage_name,
+                                include_signatures=request.include_signatures,
+                            )
                     else:
                         node = item
-                    relationship = {
+                    edge_start = item.get("start_line")
+                    edge_end = item.get("end_line")
+                    rel_value = (
+                        edge_type.value if edge_type else item.get("relationship")
+                    )
+                    relationship: dict[str, object] = {
                         "kind": "reference" if incoming else "relationship",
                         "id": str(item.get("id", node.get("id", ""))),
                         "seed_id": item.get("seed_id", matched_seed_id),
                         "target_id": node.get("id"),
-                        "relationship": edge_type.value if edge_type else item.get("relationship"),
+                        "relationship": rel_value,
                         "direction": item.get("direction", "incoming" if incoming else "both"),
                         "file_path": self._file_path(node),
-                        "start_line": node.get("start_line"),
-                        "end_line": node.get("end_line"),
+                        "start_line": edge_start if type(edge_start) is int else node.get("start_line"),
+                        "end_line": edge_end if type(edge_end) is int else node.get("end_line"),
                         "stage": stage_name,
                     }
+                    has_edge_meta = any(
+                        item.get(key) is not None
+                        for key in ("reference_kind", "enclosing_symbol", "sites", "via_barrel")
+                    )
+                    for key in ("reference_kind", "enclosing_symbol", "sites", "via_barrel"):
+                        if item.get(key) is not None:
+                            relationship[key] = item[key]
+                    if has_edge_meta and node.get("type") != NodeType.FILE.value:
+                        if isinstance(node.get("name"), str) and node["name"]:
+                            relationship["name"] = node["name"]
+                        if isinstance(node.get("type"), str) and node["type"]:
+                            relationship["node_type"] = node["type"]
+                    raw_depth = item.get("depth")
+                    hop_depth = raw_depth if type(raw_depth) is int else 1
+                    depth_hints[self._evidence_key(relationship)] = hop_depth
                     evidence["references" if incoming else "relationships"].append(relationship)
 
         try:
             async with asyncio.timeout(budget.total_seconds):
-                if selected not in eligible_playbooks(request):
-                    grounded = await resolve(await search(), files=selected is Playbook.IMPACT)
-                    if not grounded:
-                        selected = Playbook.DISCOVER
-                        degraded_reason = "anchor_" + str(anchor_resolution["status"])
-                match selected:
-                    case Playbook.DISCOVER:
-                        if anchor_resolution["status"] not in {"ambiguous", "missing", "unavailable"}:
-                            await search()
-                    case Playbook.UNDERSTAND:
-                        await related()
-                    case Playbook.RELATIONSHIPS:
-                        await related()
-                    case Playbook.REFERENCES:
-                        if request.source_position is not None:
-                            position = request.source_position
-                            response = await stage(
-                                "references", "lsp.references",
-                                {
-                                    "file_path": str(Path(request.repo_path) / position.file_path),
-                                    "line": position.line,
-                                },
-                            )
-                            raw_symbol = response.get("symbol")
-                            if isinstance(raw_symbol, dict):
-                                self._append_nodes(
-                                    evidence, [cast(dict[str, object], raw_symbol)],
-                                    "references",
+                if request.refresh_dirty:
+                    refresh_paths = list(request.file_paths)
+                    if (
+                        request.source_position is not None
+                        and request.source_position.file_path not in refresh_paths
+                    ):
+                        refresh_paths.append(request.source_position.file_path)
+                    await stage(
+                        "refresh",
+                        "knowledge.refresh_dirty",
+                        {
+                            "repo_path": request.repo_path,
+                            "file_paths": refresh_paths,
+                            "timeout_seconds": min(budget.total_seconds / 2, 5.0),
+                        },
+                    )
+                if selected is Playbook.IMPACT and request.diff_impact and not request.changed_ranges and not request.file_paths:
+                    trace.append(
+                        {
+                            "stage": "impact",
+                            "status": "ok",
+                            "counts": {"dependents": 0, "test_targets": 0},
+                            "truncated": False,
+                            "elapsed_ms": 0.0,
+                        }
+                    )
+                else:
+                    if selected not in eligible_playbooks(request):
+                        grounded = await resolve(await search(), files=selected is Playbook.IMPACT)
+                        if not grounded:
+                            selected = Playbook.DISCOVER
+                            degraded_reason = "anchor_" + str(anchor_resolution["status"])
+                    match selected:
+                        case Playbook.DISCOVER:
+                            if anchor_resolution["status"] not in {"ambiguous", "missing", "unavailable"}:
+                                await search()
+                        case Playbook.UNDERSTAND:
+                            await related()
+                        case Playbook.RELATIONSHIPS:
+                            await related()
+                        case Playbook.REFERENCES:
+                            if request.source_position is not None:
+                                position = request.source_position
+                                response = await stage(
+                                    "references", "lsp.references",
+                                    {
+                                        "file_path": str(Path(request.repo_path) / position.file_path),
+                                        "line": position.line,
+                                    },
                                 )
-                            self._append_nodes(
-                                evidence, _objects(response.get("references")), "references",
-                                category="references",
-                            )
-                        else:
-                            await related(incoming=True)
-                    case Playbook.INSPECT_FILES:
-                        files = request.file_paths
-                        if not files:
-                            seeds = await search()
-                            files = [
-                                str(path) for seed in seeds
-                                if (path := self._file_path(seed)) is not None
-                            ]
-                        unique_files = list(dict.fromkeys(files))
-                        truncated = truncated or len(unique_files) > budget.hydrated_files
-                        for file_path in unique_files[: budget.hydrated_files]:
-                            response = await stage(
-                                "inspect", "knowledge.inspect_file",
-                                {
-                                    "repo_path": request.repo_path,
-                                    "file_path": file_path,
-                                    "node_limit": min(request.limit, 50),
-                                    "edge_limit": min(request.limit * 2, 100),
-                                },
-                            )
-                            evidence["files"].append(
-                                {"kind": "file", "file_path": file_path, "stage": "inspect"}
-                            )
-                            self._append_nodes(evidence, _objects(response.get("nodes")), "inspect")
-                            raw_edges = response.get("edges")
-                            edge_groups = (
-                                cast(dict[str, object], raw_edges).values()
-                                if isinstance(raw_edges, dict)
-                                else ()
-                            )
-                            for edges in edge_groups:
-                                for edge in _objects(edges):
-                                    evidence["relationships"].append(
-                                        {"kind": "relationship", "id": edge.get("id"),
-                                         "source_id": edge.get("source_id"),
-                                         "target_id": edge.get("target_id"),
-                                         "relationship": edge.get("relationship"),
-                                         "stage": "inspect"}
+                                raw_symbol = response.get("symbol")
+                                if isinstance(raw_symbol, dict):
+                                    self._append_nodes(
+                                        evidence, [cast(dict[str, object], raw_symbol)],
+                                        "references",
+                                        include_signatures=request.include_signatures,
                                     )
-                    case Playbook.IMPACT:
-                        response = await stage(
-                            "impact", "knowledge.composite.regression_risk",
-                            {"repo_path": request.repo_path,
-                             "file_paths": request.file_paths,
-                             "dependent_limit": min(request.limit, 50),
-                             "test_target_limit": min(request.limit, 50),
-                             **({"changed_ranges": [item.model_dump() for item in request.changed_ranges]}
-                                if request.changed_ranges else {})},
-                        )
-                        self._append_nodes(evidence, _objects(response.get("dependents")), "impact")
-                        self._append_nodes(evidence, _objects(response.get("changed_symbols")), "impact")
-                        for unresolved in _objects(response.get("unresolved_ranges")):
-                            evidence["files"].append({"kind": "unresolved_range", **unresolved, "stage": "impact"})
-                        for path in _objects(response.get("dependency_paths")):
-                            evidence["relationships"].append({"kind": "dependency_path", **path, "stage": "impact"})
-                        for target in _objects(response.get("test_targets")):
-                            evidence["test_targets"].append(
-                                {"kind": "test_target", "file_path": target.get("file_path"),
-                                 "evidence": target.get("evidence", []),
-                                 "evidence_kind": target.get("evidence_kind", "static_dependency"), "stage": "impact"}
+                                for ref_item in _objects(response.get("references")):
+                                    projected_ref = _node_evidence(
+                                        ref_item,
+                                        kind="reference",
+                                        stage="references",
+                                        include_signatures=request.include_signatures,
+                                    )
+                                    for key in (
+                                        "relationship",
+                                        "reference_kind",
+                                        "enclosing_symbol",
+                                        "sites",
+                                    ):
+                                        if ref_item.get(key) is not None:
+                                            projected_ref[key] = ref_item[key]
+                                    evidence["references"].append(projected_ref)
+                            else:
+                                await related(incoming=True)
+                        case Playbook.INSPECT_FILES:
+                            files = request.file_paths
+                            if not files:
+                                seeds = await search()
+                                files = [
+                                    str(path) for seed in seeds
+                                    if (path := self._file_path(seed)) is not None
+                                ]
+                            unique_files = list(dict.fromkeys(files))
+                            truncated = truncated or len(unique_files) > budget.hydrated_files
+                            for file_path in unique_files[: budget.hydrated_files]:
+                                response = await stage(
+                                    "inspect", "knowledge.inspect_file",
+                                    {
+                                        "repo_path": request.repo_path,
+                                        "file_path": file_path,
+                                        "node_limit": min(request.limit, 50),
+                                        "edge_limit": min(request.limit * 2, 100),
+                                    },
+                                )
+                                evidence["files"].append(
+                                    {"kind": "file", "file_path": file_path, "stage": "inspect"}
+                                )
+                                self._append_nodes(
+                                    evidence,
+                                    _objects(response.get("nodes")),
+                                    "inspect",
+                                    include_signatures=request.include_signatures,
+                                )
+                                raw_edges = response.get("edges")
+                                edge_groups = (
+                                    cast(dict[str, object], raw_edges).values()
+                                    if isinstance(raw_edges, dict)
+                                    else ()
+                                )
+                                for edges in edge_groups:
+                                    for edge in _objects(edges):
+                                        rel_entry: dict[str, object] = {
+                                            "kind": "relationship",
+                                            "id": edge.get("id"),
+                                            "source_id": edge.get("source_id"),
+                                            "target_id": edge.get("target_id"),
+                                            "relationship": edge.get("relationship"),
+                                            "file_path": file_path,
+                                            "stage": "inspect",
+                                        }
+                                        edge_meta = edge.get("metadata")
+                                        if isinstance(edge_meta, dict):
+                                            em = cast(dict[str, object], edge_meta)
+                                            for mk in (
+                                                "start_line",
+                                                "end_line",
+                                                "reference_kind",
+                                                "enclosing_symbol",
+                                                "sites",
+                                            ):
+                                                if em.get(mk) is not None:
+                                                    rel_entry[mk] = em[mk]
+                                        evidence["relationships"].append(rel_entry)
+                        case Playbook.IMPACT:
+                            response = await stage(
+                                "impact", "knowledge.composite.regression_risk",
+                                {"repo_path": request.repo_path,
+                                 "file_paths": request.file_paths,
+                                 "dependent_limit": min(request.limit, 50),
+                                 "test_target_limit": min(request.limit, 50),
+                                 **({"changed_ranges": [item.model_dump() for item in request.changed_ranges]}
+                                    if request.changed_ranges else {})},
                             )
-                    case Playbook.INVENTORY:
-                        response = await stage(
-                            "inventory", "knowledge.nodes.list",
-                            {"repo_path": request.repo_path,
-                             "node_type": request.node_type or NodeType.FUNCTION.value,
-                             "limit": request.limit, "offset": 0},
-                        )
-                        self._append_nodes(evidence, _objects(response.get("nodes")), "inventory")
-                        raw_total = response.get("total")
-                        total = raw_total if isinstance(raw_total, int) else 0
-                        truncated = truncated or total > len(evidence["symbols"])
+                            self._append_nodes(
+                                evidence,
+                                _objects(response.get("dependents")),
+                                "impact",
+                                include_signatures=request.include_signatures,
+                            )
+                            self._append_nodes(
+                                evidence,
+                                _objects(response.get("changed_symbols")),
+                                "impact",
+                                include_signatures=request.include_signatures,
+                            )
+                            for unresolved in _objects(response.get("unresolved_ranges")):
+                                evidence["files"].append({"kind": "unresolved_range", **unresolved, "stage": "impact"})
+                            for path in _objects(response.get("dependency_paths")):
+                                evidence["relationships"].append({"kind": "dependency_path", **path, "stage": "impact"})
+                            for target in _objects(response.get("test_targets")):
+                                evidence["test_targets"].append(
+                                    {"kind": "test_target", "file_path": target.get("file_path"),
+                                     "evidence": target.get("evidence", []),
+                                     "evidence_kind": target.get("evidence_kind", "static_dependency"), "stage": "impact"}
+                                )
+                            raw_total_tests = response.get("total_test_targets")
+                            if type(raw_total_tests) is int:
+                                upstream_totals["test_targets"] = max(
+                                    upstream_totals.get("test_targets", 0),
+                                    raw_total_tests,
+                                )
+                            raw_total_deps = response.get("total_dependents")
+                            if type(raw_total_deps) is int:
+                                upstream_totals["relationships"] = max(
+                                    upstream_totals.get("relationships", 0),
+                                    raw_total_deps,
+                                )
+                        case Playbook.INVENTORY:
+                            response = await stage(
+                                "inventory", "knowledge.nodes.list",
+                                {"repo_path": request.repo_path,
+                                 "node_type": request.node_type or NodeType.FUNCTION.value,
+                                 "limit": request.limit, "offset": 0},
+                            )
+                            self._append_nodes(
+                                evidence,
+                                _objects(response.get("nodes")),
+                                "inventory",
+                                include_signatures=request.include_signatures,
+                            )
+                            raw_total = response.get("total")
+                            total = raw_total if isinstance(raw_total, int) else 0
+                            if type(raw_total) is int:
+                                upstream_totals["symbols"] = max(
+                                    upstream_totals.get("symbols", 0), raw_total
+                                )
+                            truncated = truncated or total > len(evidence["symbols"])
                 if request.contract_paths or request.file_paths:
                     contract_started = perf_counter()
                     collection = await asyncio.to_thread(
@@ -563,10 +859,127 @@ class QueryOrchestrator:
             trace.append({"stage": "execution", "status": "timeout", "counts": {},
                           "truncated": True, "elapsed_ms": (perf_counter() - started) * 1_000})
 
+        # Deduplicate files preferring entries that retain an explicit file node ID.
+        dedup_files: dict[tuple[str, str, str], dict[str, object]] = {}
+        for item in evidence["files"]:
+            fkey = (
+                str(item.get("kind", "")),
+                str(item.get("file_path", "")),
+                str(item.get("start_line", "")),
+            )
+            prev = dedup_files.get(fkey)
+            if prev is None or (prev.get("id") is None and item.get("id") is not None):
+                dedup_files[fkey] = item
+        evidence["files"] = list(dedup_files.values())
+
         for category, items in evidence.items():
+            if category == "files":
+                continue
             evidence[category] = list(
                 {self._evidence_key(item): item for item in items}.values()
             )
+
+        # In REFERENCES, drop redundant coarse IMPORTS fallback when a symbol-level edge
+        # already links the exact same (seed_id, file_path).
+        if evidence["references"]:
+            specific_pairs = {
+                (str(item.get("seed_id", "")), str(item.get("file_path", "")))
+                for item in evidence["references"]
+                if item.get("seed_id")
+                and item.get("file_path")
+                and _specificity_tier(item) < 3
+            }
+            if specific_pairs:
+                evidence["references"] = [
+                    item
+                    for item in evidence["references"]
+                    if not (
+                        item.get("relationship") == RelationshipType.IMPORTS.value
+                        and (str(item.get("seed_id", "")), str(item.get("file_path", "")))
+                        in specific_pairs
+                    )
+                ]
+
+        # Rank references and relationships by specificity and hop distance.
+        for edge_bucket in ("references", "relationships"):
+            if evidence[edge_bucket]:
+                evidence[edge_bucket].sort(
+                    key=lambda item: (
+                        _specificity_tier(item),
+                        depth_hints.get(self._evidence_key(item), 1),
+                        0 if type(item.get("start_line")) is int else 1,
+                        str(item.get("file_path") or ""),
+                        item["start_line"] if type(item.get("start_line")) is int else 0,
+                        str(item.get("id") or ""),
+                    )
+                )
+
+        # Populate test_targets for dependency playbooks using canonical is_test_path().
+        if selected in {
+            Playbook.IMPACT,
+            Playbook.REFERENCES,
+            Playbook.RELATIONSHIPS,
+            Playbook.UNDERSTAND,
+        } and selected is not Playbook.IMPACT:
+            by_test_file: dict[str, list[dict[str, object]]] = {}
+            for item in [*evidence["references"], *evidence["relationships"]]:
+                fpath = item.get("file_path")
+                if isinstance(fpath, str) and fpath and is_test_path(fpath):
+                    by_test_file.setdefault(fpath, []).append(item)
+            existing_paths = {
+                str(t.get("file_path")) for t in evidence["test_targets"] if t.get("file_path")
+            }
+            for test_path, items in by_test_file.items():
+                if test_path in existing_paths:
+                    continue
+                ev_list: list[dict[str, object]] = []
+                for ev in items:
+                    row: dict[str, object] = {
+                        "dependent_node_id": ev.get("id"),
+                        "affected_node_id": ev.get("seed_id"),
+                        "relationship": ev.get("relationship"),
+                    }
+                    for mk in ("reference_kind", "start_line", "end_line", "enclosing_symbol"):
+                        if ev.get(mk) is not None:
+                            row[mk] = ev[mk]
+                    ev_list.append(row)
+                evidence["test_targets"].append(
+                    {
+                        "kind": "test_target",
+                        "file_path": test_path,
+                        "evidence": ev_list,
+                        "evidence_kind": "static_dependency",
+                        "stage": items[0].get("stage", "references"),
+                    }
+                )
+
+        if evidence["test_targets"]:
+            def _test_target_rank(target: dict[str, object]) -> tuple[int, str]:
+                evs = _objects(target.get("evidence"))
+                best = min((_specificity_tier(ev) for ev in evs), default=4)
+                return (best, str(target.get("file_path") or ""))
+
+            evidence["test_targets"].sort(key=_test_target_rank)
+
+        total_counts: dict[str, int] = {
+            category: max(len(items), upstream_totals.get(category, 0))
+            for category, items in evidence.items()
+        }
+        for category in _LIMIT_BUCKETS:
+            items = evidence[category]
+            if len(items) > request.limit:
+                evidence[category] = items[: request.limit]
+                truncated = True
+
+        if request.include_signatures or request.include_snippets:
+            await asyncio.to_thread(
+                hydrate_evidence_text,
+                request.repo_path,
+                evidence,
+                include_signatures=request.include_signatures,
+                include_snippets=request.include_snippets,
+            )
+
         total_ms = (perf_counter() - started) * 1_000
         return {
             "goal": request.goal,
@@ -584,6 +997,7 @@ class QueryOrchestrator:
                 "degraded_reason": degraded_reason,
             },
             "evidence": evidence,
+            "total_counts": total_counts,
             "trace": trace,
             "complete": not truncated and not degraded_stages and degraded_reason is None,
             "truncated": truncated,
@@ -609,6 +1023,7 @@ class QueryOrchestrator:
         stage: str,
         *,
         category: str = "symbols",
+        include_signatures: bool = False,
     ) -> None:
         for node in nodes:
             if category == "symbols" and node.get("type") == NodeType.FILE.value:
@@ -617,7 +1032,12 @@ class QueryOrchestrator:
                      "file_path": QueryOrchestrator._file_path(node), "stage": stage}
                 )
                 continue
-            projected = _node_evidence(node, kind="reference" if category == "references" else "symbol", stage=stage)
+            projected = _node_evidence(
+                node,
+                kind="reference" if category == "references" else "symbol",
+                stage=stage,
+                include_signatures=include_signatures,
+            )
             evidence[category].append(projected)
 
     @staticmethod

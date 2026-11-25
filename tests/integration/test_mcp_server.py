@@ -21,6 +21,8 @@ ROUTE_OUTPUTS: dict[str, dict[str, object]] = {
         "routing": {"playbook": "DISCOVER"},
         "evidence": {"symbols": [], "files": [], "relationships": [],
                      "references": [], "test_targets": []},
+        "total_counts": {"symbols": 0, "files": 0, "relationships": 0,
+                         "references": 0, "test_targets": 0},
         "investigation": {},
         "trace": [], "complete": True, "truncated": False,
         "degraded_stages": [], "timings": {"classification_ms": 0.0,
@@ -57,7 +59,7 @@ ROUTE_OUTPUTS: dict[str, dict[str, object]] = {
 
 EXPECTED_OUTPUT_FIELDS: dict[str, set[str]] = {
     "query_code": {
-        "goal", "repo_path", "routing", "evidence", "trace", "complete",
+        "goal", "repo_path", "routing", "evidence", "total_counts", "trace", "complete",
         "truncated", "degraded_stages", "timings", "investigation",
     },
     "ingest_files": {"accepted", "job"},
@@ -100,7 +102,11 @@ async def test_every_retained_tool_dispatches_to_its_public_route(tmp_path: Path
                 "knowledge.query",
                 {"goal": "find parser", "repo_path": repo, "mode": "balanced",
                  "node_type": None, "symbol_name": None, "node_ids": [],
-                 "file_paths": [], "source_position": None, "limit": 10, "changed_ranges": [], "contract_paths": []},
+                 "file_paths": [], "source_position": None, "limit": 10,
+                 "changed_ranges": [], "contract_paths": [],
+                 "playbook": None, "include_signatures": False,
+                 "include_snippets": False, "diff_impact": False,
+                 "refresh_dirty": False},
             ),
         ),
         (

@@ -4,15 +4,13 @@
 //! directory plus the declared package. The parser remains syntax-only: it
 //! records embedding but never guesses implicit interface satisfaction.
 
-use std::collections::HashSet;
-
 use tree_sitter::{Node, Parser};
 
 use scs_core::node_types::NodeType;
 
 use super::{
-    count_complexity, truncate_str, LanguageParser, ParsedEdge, ParsedEntity, RAW_TEXT_LIMIT,
-    RAW_TEXT_SMALL_LIMIT,
+    build_call_edges, count_complexity, truncate_str, CallSite, LanguageParser, ParsedEdge,
+    ParsedEntity, RAW_TEXT_LIMIT, RAW_TEXT_SMALL_LIMIT,
 };
 
 const GO_BUILTINS: &[&str] = &[
@@ -357,14 +355,8 @@ impl GoParser {
         edges.push(ParsedEdge::new(owner, qualified.clone(), "contains"));
 
         if let Some(body) = callable.child_by_field_name("body") {
-            for (callee, local) in go_calls(body, source) {
-                let target = if local {
-                    format!("{package_qualified}.{callee}")
-                } else {
-                    callee
-                };
-                edges.push(ParsedEdge::new(qualified.clone(), target, "calls"));
-            }
+            let sites = go_calls(body, source, package_qualified);
+            edges.extend(build_call_edges(&qualified, sites));
         }
     }
 
@@ -649,8 +641,8 @@ fn normalize_type_name(raw: &str) -> String {
         .to_string()
 }
 
-fn go_calls(node: Node, source: &[u8]) -> HashSet<(String, bool)> {
-    fn walk(node: Node, source: &[u8], calls: &mut HashSet<(String, bool)>) {
+fn go_calls(node: Node, source: &[u8], package_qualified: &str) -> Vec<CallSite> {
+    fn walk(node: Node, source: &[u8], package_qualified: &str, calls: &mut Vec<CallSite>) {
         if node.kind() == "call_expression" {
             if let Some(function) = node.child_by_field_name("function") {
                 let extracted = match function.kind() {
@@ -662,7 +654,17 @@ fn go_calls(node: Node, source: &[u8]) -> HashSet<(String, bool)> {
                 };
                 if let Some((name, local)) = extracted {
                     if !GO_BUILTINS.contains(&name.as_str()) {
-                        calls.insert((name, local));
+                        let target = if local {
+                            format!("{package_qualified}.{name}")
+                        } else {
+                            name
+                        };
+                        calls.push(CallSite {
+                            name: target,
+                            qualifier: None,
+                            start_line: node.start_position().row,
+                            end_line: node.end_position().row,
+                        });
                     }
                 }
             }
@@ -670,18 +672,19 @@ fn go_calls(node: Node, source: &[u8]) -> HashSet<(String, bool)> {
 
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
-            walk(child, source, calls);
+            walk(child, source, package_qualified, calls);
         }
     }
 
-    let mut calls = HashSet::new();
-    walk(node, source, &mut calls);
+    let mut calls = Vec::new();
+    walk(node, source, package_qualified, &mut calls);
     calls
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     const REPRESENTATIVE_GO: &str = r#"
 // Package model owns graph values.

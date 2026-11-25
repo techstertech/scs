@@ -4,13 +4,17 @@
 //! and constants from TypeScript, TSX, JavaScript, and JSX files.
 //! Uses a scope stack for qualified name construction.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
+use serde_json::{json, Value};
 use tree_sitter::{Node, Parser};
 
 use scs_core::node_types::NodeType;
 
-use super::{count_complexity, extract_calls, LanguageParser, ParsedEdge, ParsedEntity};
+use super::{
+    build_call_edges, count_complexity, extract_call_sites, normalize_http_path, LanguageParser,
+    ParsedEdge, ParsedEntity, MAX_SITES_PER_EDGE,
+};
 
 /// File extensions handled by [`TypeScriptParser`].
 pub const JS_TS_EXTENSIONS: &[&str] = &[
@@ -73,6 +77,60 @@ const TS_BUILTIN_CALLS: &[&str] = &[
     "debug",
     "trace",
     "assert",
+];
+
+/// Built-in TS/DOM/React utility types excluded from type_references edges.
+const TS_BUILTIN_TYPES: &[&str] = &[
+    "Array",
+    "ReadonlyArray",
+    "Promise",
+    "Record",
+    "Partial",
+    "Required",
+    "Readonly",
+    "Pick",
+    "Omit",
+    "Exclude",
+    "Extract",
+    "NonNullable",
+    "Parameters",
+    "ConstructorParameters",
+    "ReturnType",
+    "InstanceType",
+    "ThisParameterType",
+    "OmitThisParameter",
+    "Awaited",
+    "Map",
+    "Set",
+    "WeakMap",
+    "WeakSet",
+    "Date",
+    "Error",
+    "RegExp",
+    "Function",
+    "Object",
+    "String",
+    "Number",
+    "Boolean",
+    "Symbol",
+    "BigInt",
+    "HTMLElement",
+    "HTMLInputElement",
+    "HTMLButtonElement",
+    "HTMLDivElement",
+    "HTMLFormElement",
+    "Element",
+    "Document",
+    "Window",
+    "Node",
+    "Event",
+    "MouseEvent",
+    "KeyboardEvent",
+    "ChangeEvent",
+    "ReactNode",
+    "ReactElement",
+    "FC",
+    "JSX",
 ];
 
 /// Pattern to detect UPPER_CASE constants.
@@ -183,6 +241,1104 @@ fn extract_module_import_call(node: &Node, source: &[u8]) -> Option<String> {
     extract_string_literal(&first_arg, source)
 }
 
+fn extract_string_or_template_path(node: &Node, source: &[u8]) -> Option<String> {
+    if let Some(raw) = extract_string_literal(node, source) {
+        return Some(raw);
+    }
+    if node.kind() != "template_string" {
+        return None;
+    }
+    let mut assembled = String::new();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "string_fragment" => assembled.push_str(get_text(&child, source)),
+            "template_substitution" => assembled.push_str(":param"),
+            _ => {}
+        }
+    }
+    (!assembled.is_empty()).then_some(assembled)
+}
+
+#[derive(Debug, Clone)]
+struct SiteOccurrence {
+    target: String,
+    qualifier: Option<String>,
+    start_line: usize,
+    end_line: usize,
+}
+
+fn emit_grouped_references(
+    enclosing_qname: &str,
+    reference_kind: &str,
+    sites: Vec<SiteOccurrence>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut grouped: HashMap<String, Vec<SiteOccurrence>> = HashMap::new();
+    for site in sites {
+        if !site.target.is_empty() {
+            grouped.entry(site.target.clone()).or_default().push(site);
+        }
+    }
+    let mut targets: Vec<String> = grouped.keys().cloned().collect();
+    targets.sort();
+    for target in targets {
+        let mut items = grouped.remove(&target).unwrap_or_default();
+        items.sort_by(|a, b| {
+            (a.start_line, a.end_line, a.qualifier.as_deref().unwrap_or(""))
+                .cmp(&(b.start_line, b.end_line, b.qualifier.as_deref().unwrap_or("")))
+        });
+        items.dedup_by(|a, b| {
+            a.start_line == b.start_line
+                && a.end_line == b.end_line
+                && a.qualifier == b.qualifier
+        });
+        let mut qualifiers: Vec<String> = Vec::new();
+        for item in &items {
+            if let Some(q) = &item.qualifier {
+                if !qualifiers.contains(q) {
+                    qualifiers.push(q.clone());
+                }
+            }
+        }
+        let mut meta = HashMap::new();
+        meta.insert("reference_kind".to_string(), json!(reference_kind));
+        meta.insert("enclosing_symbol".to_string(), json!(enclosing_qname));
+        if let Some(first) = items.first() {
+            meta.insert("start_line".to_string(), json!(first.start_line));
+            meta.insert("end_line".to_string(), json!(first.end_line));
+        }
+        if let Some(first_q) = qualifiers.first() {
+            meta.insert("qualifier".to_string(), json!(first_q));
+        }
+        let site_entries: Vec<Value> = items
+            .into_iter()
+            .take(MAX_SITES_PER_EDGE)
+            .map(|item| {
+                let mut entry = serde_json::Map::new();
+                entry.insert("start_line".to_string(), json!(item.start_line));
+                entry.insert("end_line".to_string(), json!(item.end_line));
+                entry.insert("reference_kind".to_string(), json!(reference_kind));
+                if let Some(q) = item.qualifier {
+                    entry.insert("qualifier".to_string(), json!(q));
+                }
+                Value::Object(entry)
+            })
+            .collect();
+        meta.insert("sites".to_string(), Value::Array(site_entries));
+        edges.push(ParsedEdge::with_metadata(
+            enclosing_qname.to_string(),
+            target,
+            "references",
+            meta,
+        ));
+    }
+}
+
+fn dotted_member_name(node: &Node, source: &[u8]) -> Option<String> {
+    match node.kind() {
+        "identifier" | "property_identifier" | "type_identifier" => {
+            let raw = get_text(node, source).trim();
+            (!raw.is_empty()).then(|| raw.to_string())
+        }
+        "member_expression" | "nested_type_identifier" => {
+            let obj = node
+                .child_by_field_name("object")
+                .or_else(|| node.named_child(0))?;
+            let prop = node
+                .child_by_field_name("property")
+                .or_else(|| node.named_child(1))?;
+            let prefix = dotted_member_name(&obj, source)?;
+            let suffix = get_text(&prop, source).trim();
+            (!suffix.is_empty()).then(|| format!("{prefix}.{suffix}"))
+        }
+        _ => None,
+    }
+}
+
+fn collect_object_pattern_bindings(
+    pattern: Node,
+    source: &[u8],
+) -> (Vec<Value>, Vec<Value>, bool) {
+    let mut bindings = Vec::new();
+    let mut imported_symbols = Vec::new();
+    let mut has_wildcard = false;
+    let mut cursor = pattern.walk();
+    for child in pattern.named_children(&mut cursor) {
+        match child.kind() {
+            "shorthand_property_identifier_pattern" => {
+                let name = get_text(&child, source).trim().to_string();
+                if !name.is_empty() {
+                    imported_symbols.push(json!(name));
+                    bindings.push(json!({
+                        "local": name,
+                        "imported": name,
+                        "kind": "named",
+                    }));
+                }
+            }
+            "pair_pattern" => {
+                let imported = child
+                    .child_by_field_name("key")
+                    .map(|k| get_text(&k, source).trim().to_string())
+                    .unwrap_or_default();
+                let local = child
+                    .child_by_field_name("value")
+                    .and_then(|v| {
+                        (v.kind() == "identifier").then(|| get_text(&v, source).trim().to_string())
+                    })
+                    .unwrap_or_else(|| imported.clone());
+                if !imported.is_empty() && !local.is_empty() {
+                    imported_symbols.push(json!(imported));
+                    bindings.push(json!({
+                        "local": local,
+                        "imported": imported,
+                        "kind": "named",
+                    }));
+                }
+            }
+            "object_assignment_pattern" => {
+                if let Some(left) = child.child_by_field_name("left") {
+                    if matches!(
+                        left.kind(),
+                        "shorthand_property_identifier_pattern" | "identifier"
+                    ) {
+                        let name = get_text(&left, source).trim().to_string();
+                        if !name.is_empty() {
+                            imported_symbols.push(json!(name));
+                            bindings.push(json!({
+                                "local": name,
+                                "imported": name,
+                                "kind": "named",
+                            }));
+                        }
+                    }
+                }
+            }
+            "rest_pattern" => {
+                has_wildcard = true;
+            }
+            _ => {}
+        }
+    }
+    (bindings, imported_symbols, has_wildcard)
+}
+
+fn require_member_access(node: Node, source: &[u8]) -> Option<(String, String)> {
+    if node.kind() != "member_expression" {
+        return None;
+    }
+    let obj = node.child_by_field_name("object")?;
+    let prop = node.child_by_field_name("property")?;
+    let spec = extract_module_import_call(&obj, source)?;
+    let prop_name = get_text(&prop, source).trim().to_string();
+    (!prop_name.is_empty()).then_some((spec, prop_name))
+}
+
+fn normalize_global_namespace(raw: &str) -> Option<String> {
+    if let Some(ns) = raw.strip_prefix("window.") {
+        (!ns.is_empty()).then(|| format!("window.{ns}"))
+    } else if let Some(ns) = raw.strip_prefix("globalThis.") {
+        (!ns.is_empty()).then(|| format!("window.{ns}"))
+    } else {
+        None
+    }
+}
+
+fn unwrap_ts_expr(mut node: Node) -> Node {
+    loop {
+        let next = match node.kind() {
+            "parenthesized_expression"
+            | "as_expression"
+            | "satisfies_expression"
+            | "non_null_expression" => node
+                .child_by_field_name("expression")
+                .or_else(|| node.named_child(0)),
+            "type_assertion" => node
+                .child_by_field_name("expression")
+                .or_else(|| node.named_child(1)),
+            _ => None,
+        };
+        match next {
+            Some(inner) => node = inner,
+            None => return node,
+        }
+    }
+}
+
+fn is_global_root_node(node: Node, source: &[u8]) -> bool {
+    let unwrapped = unwrap_ts_expr(node);
+    matches!(get_text(&unwrapped, source).trim(), "window" | "globalThis")
+}
+
+fn extract_global_namespace_node(node: Node, source: &[u8]) -> Option<String> {
+    let unwrapped = unwrap_ts_expr(node);
+    if unwrapped.kind() == "member_expression" {
+        if let (Some(obj), Some(prop)) = (
+            unwrapped.child_by_field_name("object"),
+            unwrapped.child_by_field_name("property"),
+        ) {
+            if is_global_root_node(obj, source) {
+                let prop_name = get_text(&prop, source).trim();
+                if !prop_name.is_empty() {
+                    return Some(format!("window.{prop_name}"));
+                }
+            }
+        }
+    }
+    normalize_global_namespace(get_text(&unwrapped, source).trim())
+}
+
+fn extract_object_option_string(obj: Node, source: &[u8], target_key: &str) -> Option<String> {
+    if obj.kind() != "object" {
+        return None;
+    }
+    let mut cursor = obj.walk();
+    for child in obj.named_children(&mut cursor) {
+        if child.kind() == "pair" {
+            let key = child
+                .child_by_field_name("key")
+                .map(|k| get_text(&k, source).trim().trim_matches(['"', '\'']).to_string());
+            if key.as_deref() == Some(target_key) {
+                if let Some(val) = child.child_by_field_name("value") {
+                    return extract_string_or_template_path(&val, source);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn extract_ts_http_and_bridges(
+    node: &Node,
+    source: &[u8],
+    enclosing_qname: &str,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    match node.kind() {
+        "call_expression" => {
+            if let Some(func) = node.child_by_field_name("function") {
+                if let Some(args_node) = node.child_by_field_name("arguments") {
+                    let mut ac = args_node.walk();
+                    let args: Vec<Node> = args_node.named_children(&mut ac).collect();
+
+                    // 1) fetch(path, opts?)
+                    if func.kind() == "identifier" && get_text(&func, source) == "fetch" {
+                        if let Some(first) = args.first() {
+                            if let Some(raw_path) = extract_string_or_template_path(first, source) {
+                                if let Some(norm_path) = normalize_http_path(&raw_path) {
+                                    let method = args
+                                        .get(1)
+                                        .map(|opts| {
+                                            if opts.kind() == "object" {
+                                                extract_object_option_string(*opts, source, "method")
+                                                    .map(|m| m.to_ascii_uppercase())
+                                                    .unwrap_or_else(|| "GET".to_string())
+                                            } else {
+                                                "ANY".to_string()
+                                            }
+                                        })
+                                        .unwrap_or_else(|| "GET".to_string());
+                                    let mut meta = HashMap::new();
+                                    meta.insert(
+                                        "reference_kind".to_string(),
+                                        json!("http_route_client"),
+                                    );
+                                    meta.insert("http_method".to_string(), json!(method));
+                                    meta.insert("http_path".to_string(), json!(raw_path));
+                                    meta.insert("norm_path".to_string(), json!(norm_path));
+                                    meta.insert(
+                                        "start_line".to_string(),
+                                        json!(node.start_position().row),
+                                    );
+                                    meta.insert(
+                                        "end_line".to_string(),
+                                        json!(node.end_position().row),
+                                    );
+                                    meta.insert(
+                                        "enclosing_symbol".to_string(),
+                                        json!(enclosing_qname),
+                                    );
+                                    edges.push(ParsedEdge::with_metadata(
+                                        enclosing_qname.to_string(),
+                                        format!("__scs_http_client__:{method}:{norm_path}"),
+                                        "references",
+                                        meta,
+                                    ));
+                                }
+                            }
+                        }
+                    }
+
+                    // 2) axios({ url: "/api/...", method: "..." }) or route({ method, url, handler })
+                    if func.kind() == "identifier"
+                        && get_text(&func, source) == "axios"
+                        && args.first().is_some_and(|a| a.kind() == "object")
+                    {
+                        let opts = args[0];
+                        if let Some(raw_path) = extract_object_option_string(opts, source, "url") {
+                            if let Some(norm_path) = normalize_http_path(&raw_path) {
+                                let method = extract_object_option_string(opts, source, "method")
+                                    .map(|m| m.to_ascii_uppercase())
+                                    .unwrap_or_else(|| "GET".to_string());
+                                let mut meta = HashMap::new();
+                                meta.insert(
+                                    "reference_kind".to_string(),
+                                    json!("http_route_client"),
+                                );
+                                meta.insert("http_method".to_string(), json!(method));
+                                meta.insert("http_path".to_string(), json!(raw_path));
+                                meta.insert("norm_path".to_string(), json!(norm_path));
+                                meta.insert(
+                                    "start_line".to_string(),
+                                    json!(node.start_position().row),
+                                );
+                                meta.insert(
+                                    "end_line".to_string(),
+                                    json!(node.end_position().row),
+                                );
+                                meta.insert(
+                                    "enclosing_symbol".to_string(),
+                                    json!(enclosing_qname),
+                                );
+                                edges.push(ParsedEdge::with_metadata(
+                                    enclosing_qname.to_string(),
+                                    format!("__scs_http_client__:{method}:{norm_path}"),
+                                    "references",
+                                    meta,
+                                ));
+                            }
+                        }
+                    }
+
+                    // 3) <obj>.<method>(...) -> HTTP handler / client OR global/commands bridge caller
+                    if func.kind() == "member_expression" {
+                        if let (Some(obj), Some(prop)) = (
+                            func.child_by_field_name("object"),
+                            func.child_by_field_name("property"),
+                        ) {
+                            let prop_name = get_text(&prop, source).trim();
+                            let prop_lower = prop_name.to_ascii_lowercase();
+                            let obj_raw = get_text(&obj, source).trim();
+                            let obj_lower = obj_raw.to_ascii_lowercase();
+
+                            // 3a) window.<ns>.<member>(...) / globalThis.<ns>.<member>(...)
+                            if let Some(ns) = extract_global_namespace_node(obj, source) {
+                                if !prop_name.is_empty() {
+                                    let mut meta = HashMap::new();
+                                    meta.insert(
+                                        "reference_kind".to_string(),
+                                        json!("bridge_caller"),
+                                    );
+                                    meta.insert("bridge_namespace".to_string(), json!(ns));
+                                    meta.insert("bridge_member".to_string(), json!(prop_name));
+                                    meta.insert(
+                                        "start_line".to_string(),
+                                        json!(node.start_position().row),
+                                    );
+                                    meta.insert(
+                                        "end_line".to_string(),
+                                        json!(node.end_position().row),
+                                    );
+                                    meta.insert(
+                                        "enclosing_symbol".to_string(),
+                                        json!(enclosing_qname),
+                                    );
+                                    edges.push(ParsedEdge::with_metadata(
+                                        enclosing_qname.to_string(),
+                                        format!("__scs_bridge_caller__:{ns}:{prop_name}"),
+                                        "references",
+                                        meta,
+                                    ));
+                                }
+                            } else if obj_raw == "commands" && !prop_name.is_empty() {
+                                // 3b) commands.<member>(...)
+                                let mut meta = HashMap::new();
+                                meta.insert("reference_kind".to_string(), json!("bridge_caller"));
+                                meta.insert("bridge_namespace".to_string(), json!("commands"));
+                                meta.insert("bridge_member".to_string(), json!(prop_name));
+                                meta.insert(
+                                    "start_line".to_string(),
+                                    json!(node.start_position().row),
+                                );
+                                meta.insert(
+                                    "end_line".to_string(),
+                                    json!(node.end_position().row),
+                                );
+                                meta.insert(
+                                    "enclosing_symbol".to_string(),
+                                    json!(enclosing_qname),
+                                );
+                                edges.push(ParsedEdge::with_metadata(
+                                    enclosing_qname.to_string(),
+                                    format!("__scs_bridge_caller__:commands:{prop_name}"),
+                                    "references",
+                                    meta,
+                                ));
+                            }
+
+                            // 3c) HTTP verbs on router/app or axios/api/http/client
+                            if matches!(
+                                prop_lower.as_str(),
+                                "get" | "post" | "put" | "patch" | "delete" | "head" | "options" | "all"
+                            ) {
+                                if let Some(first) = args.first() {
+                                    if let Some(raw_path) =
+                                        extract_string_or_template_path(first, source)
+                                    {
+                                        if let Some(norm_path) = normalize_http_path(&raw_path) {
+                                            let has_fn_arg = args.iter().skip(1).any(|a| {
+                                                matches!(
+                                                    a.kind(),
+                                                    "arrow_function"
+                                                        | "function_expression"
+                                                        | "generator_function"
+                                                )
+                                            });
+                                            let is_client_obj = obj_lower == "axios"
+                                                || obj_lower == "http"
+                                                || obj_lower == "api"
+                                                || obj_lower.ends_with("client")
+                                                || obj_lower.ends_with("api")
+                                                || obj_lower.ends_with("fetcher")
+                                                || (obj.kind() == "call_expression"
+                                                    && (obj_lower.contains("request")
+                                                        || obj_lower.contains("supertest")
+                                                        || obj_lower.contains("fetch")));
+                                            let last_non_fn_handler = args.iter().skip(1).rev().find_map(
+                                                |a| {
+                                                    matches!(
+                                                        a.kind(),
+                                                        "identifier" | "member_expression"
+                                                    )
+                                                    .then(|| get_text(a, source).trim().to_string())
+                                                },
+                                            );
+                                            let is_router_obj = obj_lower == "router"
+                                                || obj_lower == "app"
+                                                || obj_lower == "server"
+                                                || obj_lower.ends_with("router")
+                                                || obj_lower.ends_with("routes")
+                                                || obj_lower.ends_with("app")
+                                                || obj_lower.ends_with("server");
+                                            let looks_like_handler = has_fn_arg
+                                                || (is_router_obj && !is_client_obj && args.len() >= 2);
+
+                                            let http_method = prop_lower.to_ascii_uppercase();
+                                            if looks_like_handler {
+                                                let mut meta = HashMap::new();
+                                                meta.insert(
+                                                    "reference_kind".to_string(),
+                                                    json!("http_route_handler"),
+                                                );
+                                                meta.insert(
+                                                    "http_method".to_string(),
+                                                    json!(http_method),
+                                                );
+                                                meta.insert(
+                                                    "http_path".to_string(),
+                                                    json!(raw_path),
+                                                );
+                                                meta.insert(
+                                                    "norm_path".to_string(),
+                                                    json!(norm_path),
+                                                );
+                                                meta.insert(
+                                                    "start_line".to_string(),
+                                                    json!(node.start_position().row),
+                                                );
+                                                meta.insert(
+                                                    "end_line".to_string(),
+                                                    json!(node.end_position().row),
+                                                );
+                                                meta.insert(
+                                                    "enclosing_symbol".to_string(),
+                                                    json!(enclosing_qname),
+                                                );
+                                                if let Some(h) = last_non_fn_handler {
+                                                    meta.insert(
+                                                        "handler_symbol".to_string(),
+                                                        json!(h),
+                                                    );
+                                                }
+                                                edges.push(ParsedEdge::with_metadata(
+                                                    enclosing_qname.to_string(),
+                                                    format!(
+                                                        "__scs_http_handler__:{http_method}:{norm_path}"
+                                                    ),
+                                                    "references",
+                                                    meta,
+                                                ));
+                                            } else if is_client_obj
+                                                || (args.len() == 1 && !is_router_obj)
+                                            {
+                                                let mut meta = HashMap::new();
+                                                meta.insert(
+                                                    "reference_kind".to_string(),
+                                                    json!("http_route_client"),
+                                                );
+                                                meta.insert(
+                                                    "http_method".to_string(),
+                                                    json!(http_method),
+                                                );
+                                                meta.insert(
+                                                    "http_path".to_string(),
+                                                    json!(raw_path),
+                                                );
+                                                meta.insert(
+                                                    "norm_path".to_string(),
+                                                    json!(norm_path),
+                                                );
+                                                meta.insert(
+                                                    "start_line".to_string(),
+                                                    json!(node.start_position().row),
+                                                );
+                                                meta.insert(
+                                                    "end_line".to_string(),
+                                                    json!(node.end_position().row),
+                                                );
+                                                meta.insert(
+                                                    "enclosing_symbol".to_string(),
+                                                    json!(enclosing_qname),
+                                                );
+                                                edges.push(ParsedEdge::with_metadata(
+                                                    enclosing_qname.to_string(),
+                                                    format!(
+                                                        "__scs_http_client__:{http_method}:{norm_path}"
+                                                    ),
+                                                    "references",
+                                                    meta,
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        "assignment_expression" => {
+            if let (Some(left), Some(right)) = (
+                node.child_by_field_name("left"),
+                node.child_by_field_name("right"),
+            ) {
+                if left.kind() == "member_expression" {
+                    if let (Some(obj), Some(prop)) = (
+                        left.child_by_field_name("object"),
+                        left.child_by_field_name("property"),
+                    ) {
+                        let prop_name = get_text(&prop, source).trim();
+                        if let Some(ns) = extract_global_namespace_node(obj, source) {
+                            if !prop_name.is_empty() {
+                                let mut meta = HashMap::new();
+                                meta.insert("reference_kind".to_string(), json!("bridge_provider"));
+                                meta.insert("bridge_namespace".to_string(), json!(ns));
+                                meta.insert("bridge_member".to_string(), json!(prop_name));
+                                meta.insert(
+                                    "start_line".to_string(),
+                                    json!(node.start_position().row),
+                                );
+                                meta.insert(
+                                    "end_line".to_string(),
+                                    json!(node.end_position().row),
+                                );
+                                meta.insert(
+                                    "enclosing_symbol".to_string(),
+                                    json!(enclosing_qname),
+                                );
+                                if right.kind() == "identifier" {
+                                    meta.insert(
+                                        "handler_symbol".to_string(),
+                                        json!(get_text(&right, source).trim()),
+                                    );
+                                }
+                                edges.push(ParsedEdge::with_metadata(
+                                    enclosing_qname.to_string(),
+                                    format!("__scs_bridge_provider__:{ns}:{prop_name}"),
+                                    "references",
+                                    meta,
+                                ));
+                            }
+                        } else if is_global_root_node(obj, source)
+                            && !prop_name.is_empty()
+                            && right.kind() == "object"
+                        {
+                            let ns = format!("window.{prop_name}");
+                            let mut oc = right.walk();
+                            for item in right.named_children(&mut oc) {
+                                match item.kind() {
+                                    "shorthand_property_identifier" => {
+                                        let m = get_text(&item, source).trim();
+                                        if !m.is_empty() {
+                                            let mut meta = HashMap::new();
+                                            meta.insert(
+                                                "reference_kind".to_string(),
+                                                json!("bridge_provider"),
+                                            );
+                                            meta.insert("bridge_namespace".to_string(), json!(ns));
+                                            meta.insert("bridge_member".to_string(), json!(m));
+                                            meta.insert(
+                                                "handler_symbol".to_string(),
+                                                json!(m),
+                                            );
+                                            meta.insert(
+                                                "start_line".to_string(),
+                                                json!(item.start_position().row),
+                                            );
+                                            meta.insert(
+                                                "end_line".to_string(),
+                                                json!(item.end_position().row),
+                                            );
+                                            meta.insert(
+                                                "enclosing_symbol".to_string(),
+                                                json!(enclosing_qname),
+                                            );
+                                            edges.push(ParsedEdge::with_metadata(
+                                                enclosing_qname.to_string(),
+                                                format!("__scs_bridge_provider__:{ns}:{m}"),
+                                                "references",
+                                                meta,
+                                            ));
+                                        }
+                                    }
+                                    "pair" => {
+                                        if let Some(k) = item.child_by_field_name("key") {
+                                            let m = get_text(&k, source).trim();
+                                            if !m.is_empty() {
+                                                let mut meta = HashMap::new();
+                                                meta.insert(
+                                                    "reference_kind".to_string(),
+                                                    json!("bridge_provider"),
+                                                );
+                                                meta.insert(
+                                                    "bridge_namespace".to_string(),
+                                                    json!(ns),
+                                                );
+                                                meta.insert("bridge_member".to_string(), json!(m));
+                                                if let Some(v) = item.child_by_field_name("value") {
+                                                    if v.kind() == "identifier" {
+                                                        meta.insert(
+                                                            "handler_symbol".to_string(),
+                                                            json!(get_text(&v, source).trim()),
+                                                        );
+                                                    }
+                                                }
+                                                meta.insert(
+                                                    "start_line".to_string(),
+                                                    json!(item.start_position().row),
+                                                );
+                                                meta.insert(
+                                                    "end_line".to_string(),
+                                                    json!(item.end_position().row),
+                                                );
+                                                meta.insert(
+                                                    "enclosing_symbol".to_string(),
+                                                    json!(enclosing_qname),
+                                                );
+                                                edges.push(ParsedEdge::with_metadata(
+                                                    enclosing_qname.to_string(),
+                                                    format!("__scs_bridge_provider__:{ns}:{m}"),
+                                                    "references",
+                                                    meta,
+                                                ));
+                                            }
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        "pair" => {
+            // Generic RPC / test command map: `commands: { a, b }` or `commands: require("./mod")` or `commands: sym`
+            if let (Some(key), Some(val)) = (
+                node.child_by_field_name("key"),
+                node.child_by_field_name("value"),
+            ) {
+                if get_text(&key, source).trim() == "commands" {
+                    if val.kind() == "object" {
+                        let mut oc = val.walk();
+                        for item in val.named_children(&mut oc) {
+                            match item.kind() {
+                                "shorthand_property_identifier" => {
+                                    let m = get_text(&item, source).trim();
+                                    if !m.is_empty() {
+                                        let mut meta = HashMap::new();
+                                        meta.insert(
+                                            "reference_kind".to_string(),
+                                            json!("bridge_provider"),
+                                        );
+                                        meta.insert(
+                                            "bridge_namespace".to_string(),
+                                            json!("commands"),
+                                        );
+                                        meta.insert("bridge_member".to_string(), json!(m));
+                                        meta.insert("handler_symbol".to_string(), json!(m));
+                                        meta.insert(
+                                            "start_line".to_string(),
+                                            json!(item.start_position().row),
+                                        );
+                                        meta.insert(
+                                            "end_line".to_string(),
+                                            json!(item.end_position().row),
+                                        );
+                                        meta.insert(
+                                            "enclosing_symbol".to_string(),
+                                            json!(enclosing_qname),
+                                        );
+                                        edges.push(ParsedEdge::with_metadata(
+                                            enclosing_qname.to_string(),
+                                            format!("__scs_bridge_provider__:commands:{m}"),
+                                            "references",
+                                            meta,
+                                        ));
+                                    }
+                                }
+                                "pair" => {
+                                    if let Some(k) = item.child_by_field_name("key") {
+                                        let m = get_text(&k, source).trim();
+                                        if !m.is_empty() {
+                                            let mut meta = HashMap::new();
+                                            meta.insert(
+                                                "reference_kind".to_string(),
+                                                json!("bridge_provider"),
+                                            );
+                                            meta.insert(
+                                                "bridge_namespace".to_string(),
+                                                json!("commands"),
+                                            );
+                                            meta.insert("bridge_member".to_string(), json!(m));
+                                            if let Some(v) = item.child_by_field_name("value") {
+                                                if v.kind() == "identifier" {
+                                                    meta.insert(
+                                                        "handler_symbol".to_string(),
+                                                        json!(get_text(&v, source).trim()),
+                                                    );
+                                                }
+                                            }
+                                            meta.insert(
+                                                "start_line".to_string(),
+                                                json!(item.start_position().row),
+                                            );
+                                            meta.insert(
+                                                "end_line".to_string(),
+                                                json!(item.end_position().row),
+                                            );
+                                            meta.insert(
+                                                "enclosing_symbol".to_string(),
+                                                json!(enclosing_qname),
+                                            );
+                                            edges.push(ParsedEdge::with_metadata(
+                                                enclosing_qname.to_string(),
+                                                format!("__scs_bridge_provider__:commands:{m}"),
+                                                "references",
+                                                meta,
+                                            ));
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    } else if let Some(spec) = extract_module_import_call(&val, source) {
+                        let mut meta = HashMap::new();
+                        meta.insert("reference_kind".to_string(), json!("bridge_provider"));
+                        meta.insert("bridge_namespace".to_string(), json!("commands"));
+                        meta.insert("bridge_member".to_string(), json!("*"));
+                        meta.insert("target_specifier".to_string(), json!(spec));
+                        meta.insert("start_line".to_string(), json!(node.start_position().row));
+                        meta.insert("end_line".to_string(), json!(node.end_position().row));
+                        meta.insert("enclosing_symbol".to_string(), json!(enclosing_qname));
+                        edges.push(ParsedEdge::with_metadata(
+                            enclosing_qname.to_string(),
+                            "__scs_bridge_provider__:commands:*".to_string(),
+                            "references",
+                            meta,
+                        ));
+                    } else if val.kind() == "identifier" {
+                        let local = get_text(&val, source).trim();
+                        if !local.is_empty() {
+                            let mut meta = HashMap::new();
+                            meta.insert("reference_kind".to_string(), json!("bridge_provider"));
+                            meta.insert("bridge_namespace".to_string(), json!("commands"));
+                            meta.insert("bridge_member".to_string(), json!("*"));
+                            meta.insert("target_local".to_string(), json!(local));
+                            meta.insert("start_line".to_string(), json!(node.start_position().row));
+                            meta.insert("end_line".to_string(), json!(node.end_position().row));
+                            meta.insert("enclosing_symbol".to_string(), json!(enclosing_qname));
+                            edges.push(ParsedEdge::with_metadata(
+                                enclosing_qname.to_string(),
+                                "__scs_bridge_provider__:commands:*".to_string(),
+                                "references",
+                                meta,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_type_references_in_type_node(
+    type_root: Node,
+    source: &[u8],
+    excluded_decl_name: Option<&str>,
+    out: &mut Vec<SiteOccurrence>,
+) {
+    let builtins: HashSet<&str> = TS_BUILTIN_TYPES.iter().copied().collect();
+    let mut cursor = type_root.walk();
+    let mut reached_root = false;
+    loop {
+        let n = cursor.node();
+        if n.kind() == "type_identifier" {
+            let parent_kind = n.parent().map(|p| p.kind()).unwrap_or("");
+            if !matches!(
+                parent_kind,
+                "type_parameter"
+                    | "type_alias_declaration"
+                    | "interface_declaration"
+                    | "class_declaration"
+                    | "extends_clause"
+                    | "implements_clause"
+                    | "extends_type_clause"
+            ) {
+                let (target, qualifier) = if parent_kind == "nested_type_identifier" {
+                    let parent = n.parent().unwrap();
+                    let full = dotted_member_name(&parent, source).unwrap_or_default();
+                    if let Some((q, tail)) = full.rsplit_once('.') {
+                        (tail.to_string(), Some(q.to_string()))
+                    } else {
+                        (get_text(&n, source).trim().to_string(), None)
+                    }
+                } else {
+                    (get_text(&n, source).trim().to_string(), None)
+                };
+                if target.len() > 1
+                    && !builtins.contains(target.as_str())
+                    && Some(target.as_str()) != excluded_decl_name
+                {
+                    out.push(SiteOccurrence {
+                        target,
+                        qualifier,
+                        start_line: n.start_position().row,
+                        end_line: n.end_position().row,
+                    });
+                }
+            }
+        }
+        if cursor.goto_first_child() {
+            continue;
+        }
+        if cursor.goto_next_sibling() {
+            continue;
+        }
+        loop {
+            if !cursor.goto_parent() || cursor.node() == type_root {
+                reached_root = true;
+                break;
+            }
+            if cursor.goto_next_sibling() {
+                break;
+            }
+        }
+        if reached_root {
+            break;
+        }
+    }
+}
+
+fn extract_body_references(
+    root: Node,
+    source: &[u8],
+    language: &str,
+    enclosing_qname: &str,
+    edges: &mut Vec<ParsedEdge>,
+    skip_named_decls: bool,
+) {
+    let blocklist: HashSet<&str> = TS_BUILTIN_CALLS.iter().copied().collect();
+    if !skip_named_decls {
+        let sites = extract_call_sites(&root, source, language, &blocklist);
+        edges.extend(build_call_edges(enclosing_qname, sites));
+    } else {
+        // For module-scope blocks/callbacks, collect call sites while skipping named declarations.
+        let mut sites = Vec::new();
+        let mut cursor = root.walk();
+        let mut reached_root = false;
+        loop {
+            let n = cursor.node();
+            let is_nested_named = n != root
+                && matches!(
+                    n.kind(),
+                    "class_declaration"
+                        | "function_declaration"
+                        | "generator_function_declaration"
+                        | "method_definition"
+                );
+            if is_nested_named {
+                // Skip named declarations handled separately with their own scope.
+            } else {
+                if matches!(n.kind(), "call_expression" | "new_expression") {
+                    for s in extract_call_sites(&n, source, language, &blocklist) {
+                        if s.start_line == n.start_position().row {
+                            sites.push(s);
+                            break;
+                        }
+                    }
+                }
+                if cursor.goto_first_child() {
+                    continue;
+                }
+            }
+            if cursor.goto_next_sibling() {
+                continue;
+            }
+            loop {
+                if !cursor.goto_parent() || cursor.node() == root {
+                    reached_root = true;
+                    break;
+                }
+                if cursor.goto_next_sibling() {
+                    break;
+                }
+            }
+            if reached_root {
+                break;
+            }
+        }
+        edges.extend(build_call_edges(enclosing_qname, sites));
+    }
+
+    let is_jsx = language == "tsx" || language == "jsx";
+    let mut jsx_sites: Vec<SiteOccurrence> = Vec::new();
+    let mut type_sites: Vec<SiteOccurrence> = Vec::new();
+
+    let mut cursor = root.walk();
+    let mut reached_root = false;
+    loop {
+        let n = cursor.node();
+        let skip = skip_named_decls
+            && n != root
+            && matches!(
+                n.kind(),
+                "class_declaration"
+                    | "function_declaration"
+                    | "generator_function_declaration"
+                    | "method_definition"
+            );
+        if !skip {
+            if is_jsx
+                && matches!(n.kind(), "jsx_opening_element" | "jsx_self_closing_element")
+            {
+                if let Some(tag) = n.child_by_field_name("name") {
+                    match tag.kind() {
+                        "identifier" => {
+                            let name = get_text(&tag, source).trim();
+                            if name.chars().next().is_some_and(|c| c.is_ascii_uppercase()) {
+                                jsx_sites.push(SiteOccurrence {
+                                    target: name.to_string(),
+                                    qualifier: None,
+                                    start_line: n.start_position().row,
+                                    end_line: n.end_position().row,
+                                });
+                            }
+                        }
+                        "member_expression" => {
+                            if let Some(full) = dotted_member_name(&tag, source) {
+                                if let Some((q, tail)) = full.rsplit_once('.') {
+                                    jsx_sites.push(SiteOccurrence {
+                                        target: tail.to_string(),
+                                        qualifier: Some(q.to_string()),
+                                        start_line: n.start_position().row,
+                                        end_line: n.end_position().row,
+                                    });
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            } else if matches!(
+                n.kind(),
+                "type_annotation" | "type_arguments" | "as_expression" | "satisfies_expression"
+            ) {
+                collect_type_references_in_type_node(n, source, None, &mut type_sites);
+            }
+            extract_ts_http_and_bridges(&n, source, enclosing_qname, edges);
+
+            if cursor.goto_first_child() {
+                continue;
+            }
+        }
+        if cursor.goto_next_sibling() {
+            continue;
+        }
+        loop {
+            if !cursor.goto_parent() || cursor.node() == root {
+                reached_root = true;
+                break;
+            }
+            if cursor.goto_next_sibling() {
+                break;
+            }
+        }
+        if reached_root {
+            break;
+        }
+    }
+
+    if !jsx_sites.is_empty() {
+        emit_grouped_references(enclosing_qname, "renders", jsx_sites, edges);
+    }
+    if !type_sites.is_empty() {
+        emit_grouped_references(enclosing_qname, "type_references", type_sites, edges);
+    }
+}
+
+fn fn_signature(fn_node: &Node, params_field: &str, alt_field: Option<&str>, source: &[u8]) -> String {
+    let params = fn_node
+        .child_by_field_name(params_field)
+        .or_else(|| alt_field.and_then(|f| fn_node.child_by_field_name(f)))
+        .or_else(|| find_child_by_kind(fn_node, "formal_parameters"))
+        .map(|p| get_text(&p, source).trim().to_string())
+        .unwrap_or_default();
+    let ret = fn_node
+        .child_by_field_name("return_type")
+        .map(|r| get_text(&r, source).trim().to_string())
+        .unwrap_or_default();
+    if !params.is_empty() && !ret.is_empty() {
+        format!("{params}{ret}")
+    } else {
+        params
+    }
+}
+
+fn emit_signature_type_references(
+    fn_node: &Node,
+    source: &[u8],
+    enclosing_qname: &str,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut type_sites = Vec::new();
+    for field in ["parameters", "parameter", "return_type"] {
+        if let Some(child) = fn_node.child_by_field_name(field) {
+            collect_type_references_in_type_node(child, source, None, &mut type_sites);
+        }
+    }
+    if let Some(formal) = find_child_by_kind(fn_node, "formal_parameters") {
+        collect_type_references_in_type_node(formal, source, None, &mut type_sites);
+    }
+    if !type_sites.is_empty() {
+        emit_grouped_references(enclosing_qname, "type_references", type_sites, edges);
+    }
+}
+
 fn commonjs_export_target(left: Node, source: &[u8]) -> Option<Option<String>> {
     if left.kind() != "member_expression" {
         return None;
@@ -252,6 +1408,25 @@ impl TypeScriptParser {
         entities: &mut Vec<ParsedEntity>,
         edges: &mut Vec<ParsedEdge>,
     ) {
+        self.emit_import_with_metadata(
+            node,
+            import_path,
+            module_name,
+            entities,
+            edges,
+            HashMap::new(),
+        );
+    }
+
+    fn emit_import_with_metadata(
+        &self,
+        node: Node,
+        import_path: &str,
+        module_name: &str,
+        entities: &mut Vec<ParsedEntity>,
+        edges: &mut Vec<ParsedEdge>,
+        mut edge_meta: HashMap<String, Value>,
+    ) {
         let qualified = format!("{module_name}.import.{import_path}");
         entities.push(ParsedEntity {
             kind: NodeType::Import,
@@ -273,11 +1448,131 @@ impl TypeScriptParser {
             qualified,
             "contains",
         ));
-        edges.push(ParsedEdge::new(
+        edge_meta
+            .entry("start_line".to_string())
+            .or_insert_with(|| json!(node.start_position().row));
+        edge_meta
+            .entry("end_line".to_string())
+            .or_insert_with(|| json!(node.end_position().row));
+        edge_meta
+            .entry("enclosing_symbol".to_string())
+            .or_insert_with(|| json!(module_name));
+        edges.push(ParsedEdge::with_metadata(
             module_name.to_string(),
             import_path.to_string(),
             "imports",
+            edge_meta,
         ));
+    }
+
+    fn reexport_metadata(&self, node: Node, source: &[u8]) -> HashMap<String, Value> {
+        let mut meta = HashMap::new();
+        meta.insert("reference_kind".to_string(), json!("reexports"));
+        meta.insert("is_reexport".to_string(), json!(true));
+        let mut bindings: Vec<Value> = Vec::new();
+        let mut imported_symbols: Vec<Value> = Vec::new();
+        let mut wildcard = false;
+
+        if let Some(clause) = find_child_by_kind(&node, "export_clause") {
+            let mut cursor = clause.walk();
+            for spec in clause.named_children(&mut cursor) {
+                if spec.kind() == "export_specifier" {
+                    let imported = spec
+                        .child_by_field_name("name")
+                        .map(|n| get_text(&n, source).trim().to_string())
+                        .unwrap_or_default();
+                    let exported = spec
+                        .child_by_field_name("alias")
+                        .map(|a| get_text(&a, source).trim().to_string())
+                        .unwrap_or_else(|| imported.clone());
+                    if !imported.is_empty() && !exported.is_empty() {
+                        imported_symbols.push(json!(imported));
+                        bindings.push(json!({
+                            "imported": imported,
+                            "exported": exported,
+                            "kind": "named",
+                        }));
+                    }
+                }
+            }
+        } else if let Some(ns) = find_child_by_kind(&node, "namespace_export") {
+            let exported = find_child_by_kind(&ns, "identifier")
+                .map(|id| get_text(&id, source).trim().to_string())
+                .unwrap_or_default();
+            wildcard = true;
+            if !exported.is_empty() {
+                bindings.push(json!({
+                    "imported": "*",
+                    "exported": exported,
+                    "kind": "namespace",
+                }));
+            }
+        } else {
+            wildcard = true;
+            bindings.push(json!({
+                "imported": "*",
+                "exported": "*",
+                "kind": "star",
+            }));
+        }
+
+        if !imported_symbols.is_empty() {
+            meta.insert("imported_symbols".to_string(), Value::Array(imported_symbols));
+        }
+        if !bindings.is_empty() {
+            meta.insert("reexport_bindings".to_string(), Value::Array(bindings));
+        }
+        meta.insert("wildcard_import".to_string(), json!(wildcard));
+        meta
+    }
+
+    fn maybe_emit_default_export(
+        &self,
+        node: Node,
+        source: &[u8],
+        module_name: &str,
+        edges: &mut Vec<ParsedEdge>,
+    ) {
+        let mut is_default = false;
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if !child.is_named() && get_text(&child, source) == "default" {
+                is_default = true;
+                break;
+            }
+        }
+        if !is_default {
+            return;
+        }
+        let val = node.child_by_field_name("value").or_else(|| node.named_child(0));
+        let Some(target_node) = val else {
+            return;
+        };
+        let local_name = match target_node.kind() {
+            "identifier" => Some(get_text(&target_node, source).trim().to_string()),
+            "function_declaration" | "generator_function_declaration" => {
+                find_child_by_kind(&target_node, "identifier")
+                    .map(|id| get_text(&id, source).trim().to_string())
+            }
+            "class_declaration" => find_child_by_kind(&target_node, "type_identifier")
+                .or_else(|| find_child_by_kind(&target_node, "identifier"))
+                .map(|id| get_text(&id, source).trim().to_string()),
+            _ => None,
+        };
+        if let Some(name) = local_name.filter(|s| !s.is_empty()) {
+            let mut meta = HashMap::new();
+            meta.insert("reference_kind".to_string(), json!("export_default"));
+            meta.insert("local_name".to_string(), json!(name));
+            meta.insert("start_line".to_string(), json!(node.start_position().row));
+            meta.insert("end_line".to_string(), json!(node.end_position().row));
+            meta.insert("enclosing_symbol".to_string(), json!(module_name));
+            edges.push(ParsedEdge::with_metadata(
+                module_name.to_string(),
+                format!("__scs_export_default__:{name}"),
+                "references",
+                meta,
+            ));
+        }
     }
 
     fn extract_module_imports_in_subtree(
@@ -375,9 +1670,29 @@ impl TypeScriptParser {
             }
             "call_expression" => {
                 if let Some(import_path) = extract_module_import_call(&child, source) {
-                    self.emit_import(child, &import_path, module_name, entities, edges);
-                } else if let Some(func) = child.child_by_field_name("function") {
-                    self.walk_node(func, source, module_name, entities, edges, scope_stack);
+                    let mut meta = HashMap::new();
+                    meta.insert("reference_kind".to_string(), json!("imports_namespace"));
+                    meta.insert("wildcard_import".to_string(), json!(true));
+                    self.emit_import_with_metadata(
+                        child,
+                        &import_path,
+                        module_name,
+                        entities,
+                        edges,
+                        meta,
+                    );
+                } else {
+                    extract_body_references(
+                        child,
+                        source,
+                        &self.language_name,
+                        module_name,
+                        edges,
+                        true,
+                    );
+                    if let Some(func) = child.child_by_field_name("function") {
+                        self.walk_node(func, source, module_name, entities, edges, scope_stack);
+                    }
                 }
                 if let Some(args) = child.child_by_field_name("arguments") {
                     self.walk(args, source, module_name, entities, edges, scope_stack);
@@ -392,19 +1707,41 @@ impl TypeScriptParser {
                         entities,
                         edges,
                     );
+                    extract_body_references(
+                        child,
+                        source,
+                        &self.language_name,
+                        module_name,
+                        edges,
+                        true,
+                    );
                 }
             }
             "export_statement" => {
                 if let Some(src) = child.child_by_field_name("source") {
                     if let Some(import_path) = extract_string_literal(&src, source) {
-                        self.emit_import(child, &import_path, module_name, entities, edges);
+                        let meta = self.reexport_metadata(child, source);
+                        self.emit_import_with_metadata(
+                            child,
+                            &import_path,
+                            module_name,
+                            entities,
+                            edges,
+                            meta,
+                        );
                     }
+                } else {
+                    self.maybe_emit_default_export(child, source, module_name, edges);
                 }
                 // Unwrap export and process the inner declaration.
                 self.walk(child, source, module_name, entities, edges, scope_stack);
             }
             "method_definition" | "public_field_definition" => {
                 self.handle_method(child, source, module_name, entities, edges, scope_stack);
+            }
+            "pair" => {
+                extract_ts_http_and_bridges(&child, source, module_name, edges);
+                self.walk(child, source, module_name, entities, edges, scope_stack);
             }
             _ => {
                 // Don't recurse into function bodies.
@@ -441,20 +1778,78 @@ impl TypeScriptParser {
 
         let qualified = format!("{}.{name}", scope_stack.join("."));
 
-        // Extract heritage (extends/implements).
+        // Extract heritage (extends/implements) with exact relationship kinds & lines.
         let mut bases = Vec::new();
+        let mut inherit_targets = Vec::new();
+        let mut implement_targets = Vec::new();
         let mut cursor2 = node.walk();
         for child in node.children(&mut cursor2) {
-            if matches!(
-                child.kind(),
-                "class_heritage" | "extends_clause" | "implements_clause"
-            ) {
-                let mut sub_cursor = child.walk();
-                for sub in child.children(&mut sub_cursor) {
-                    if sub.kind() == "type_identifier" || sub.kind() == "identifier" {
-                        bases.push(get_text(&sub, source).to_string());
+            match child.kind() {
+                "class_heritage" => {
+                    let mut hc = child.walk();
+                    for clause in child.children(&mut hc) {
+                        match clause.kind() {
+                            "extends_clause" => {
+                                let mut sc = clause.walk();
+                                for sub in clause.children(&mut sc) {
+                                    if matches!(sub.kind(), "type_identifier" | "identifier") {
+                                        let target = get_text(&sub, source).to_string();
+                                        bases.push(target.clone());
+                                        inherit_targets.push((
+                                            target,
+                                            sub.start_position().row,
+                                            sub.end_position().row,
+                                        ));
+                                    }
+                                }
+                            }
+                            "implements_clause" => {
+                                let mut sc = clause.walk();
+                                for sub in clause.children(&mut sc) {
+                                    if matches!(sub.kind(), "type_identifier" | "identifier") {
+                                        let target = get_text(&sub, source).to_string();
+                                        bases.push(target.clone());
+                                        implement_targets.push((
+                                            target,
+                                            sub.start_position().row,
+                                            sub.end_position().row,
+                                        ));
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
                     }
                 }
+                "extends_clause" => {
+                    let mut sc = child.walk();
+                    for sub in child.children(&mut sc) {
+                        if matches!(sub.kind(), "type_identifier" | "identifier") {
+                            let target = get_text(&sub, source).to_string();
+                            bases.push(target.clone());
+                            inherit_targets.push((
+                                target,
+                                sub.start_position().row,
+                                sub.end_position().row,
+                            ));
+                        }
+                    }
+                }
+                "implements_clause" => {
+                    let mut sc = child.walk();
+                    for sub in child.children(&mut sc) {
+                        if matches!(sub.kind(), "type_identifier" | "identifier") {
+                            let target = get_text(&sub, source).to_string();
+                            bases.push(target.clone());
+                            implement_targets.push((
+                                target,
+                                sub.start_position().row,
+                                sub.end_position().row,
+                            ));
+                        }
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -480,8 +1875,31 @@ impl TypeScriptParser {
             "contains",
         ));
 
-        for base in &bases {
-            edges.push(ParsedEdge::new(qualified.clone(), base.clone(), "inherits"));
+        for (base, start_line, end_line) in inherit_targets {
+            let mut meta = HashMap::new();
+            meta.insert("reference_kind".to_string(), json!("extends"));
+            meta.insert("start_line".to_string(), json!(start_line));
+            meta.insert("end_line".to_string(), json!(end_line));
+            meta.insert("enclosing_symbol".to_string(), json!(qualified));
+            edges.push(ParsedEdge::with_metadata(
+                qualified.clone(),
+                base,
+                "inherits",
+                meta,
+            ));
+        }
+        for (iface, start_line, end_line) in implement_targets {
+            let mut meta = HashMap::new();
+            meta.insert("reference_kind".to_string(), json!("implements"));
+            meta.insert("start_line".to_string(), json!(start_line));
+            meta.insert("end_line".to_string(), json!(end_line));
+            meta.insert("enclosing_symbol".to_string(), json!(qualified));
+            edges.push(ParsedEdge::with_metadata(
+                qualified.clone(),
+                iface,
+                "implements",
+                meta,
+            ));
         }
 
         // Recurse into class body.
@@ -513,11 +1931,7 @@ impl TypeScriptParser {
         } else {
             NodeType::Function
         };
-        let params = fn_node
-            .child_by_field_name("parameters")
-            .or_else(|| fn_node.child_by_field_name("parameter"))
-            .map(|p| get_text(&p, source).to_string())
-            .unwrap_or_default();
+        let signature = fn_signature(&fn_node, "parameters", Some("parameter"), source);
         let raw = get_text(&fn_node, source);
         let complexity = count_complexity(&fn_node, source, &self.language_name);
 
@@ -527,7 +1941,7 @@ impl TypeScriptParser {
             qualified_name: qualified.clone(),
             start_line: fn_node.start_position().row,
             end_line: fn_node.end_position().row,
-            signature: params,
+            signature,
             raw_text: super::truncate_str(raw, super::RAW_TEXT_LIMIT).to_string(),
             parent_qualified_name: Some(scope_stack.join(".")),
             docstring: get_doc_comment_for_declaration(&doc_node, source),
@@ -542,12 +1956,9 @@ impl TypeScriptParser {
             "contains",
         ));
 
+        emit_signature_type_references(&fn_node, source, &qualified, edges);
         if let Some(body) = fn_node.child_by_field_name("body") {
-            let blocklist: HashSet<&str> = TS_BUILTIN_CALLS.iter().copied().collect();
-            let callees = extract_calls(&body, source, &self.language_name, &blocklist);
-            for callee in callees {
-                edges.push(ParsedEdge::new(qualified.clone(), callee, "calls"));
-            }
+            extract_body_references(body, source, &self.language_name, &qualified, edges, false);
             self.extract_module_imports_in_subtree(body, source, module_name, entities, edges);
         }
     }
@@ -581,9 +1992,7 @@ impl TypeScriptParser {
             NodeType::Function
         };
 
-        let params = find_child_by_kind(&node, "formal_parameters")
-            .map(|p| get_text(&p, source).to_string())
-            .unwrap_or_default();
+        let signature = fn_signature(&node, "parameters", None, source);
 
         let raw = get_text(&node, source);
         let complexity = count_complexity(&node, source, &self.language_name);
@@ -593,7 +2002,7 @@ impl TypeScriptParser {
             qualified_name: qualified.clone(),
             start_line: node.start_position().row,
             end_line: node.end_position().row,
-            signature: params,
+            signature,
             raw_text: super::truncate_str(raw, super::RAW_TEXT_LIMIT).to_string(),
             parent_qualified_name: Some(scope_stack.join(".")),
             docstring: get_doc_comment_for_declaration(&node, source),
@@ -608,13 +2017,10 @@ impl TypeScriptParser {
             "contains",
         ));
 
-        // CALLS edges from this function to callees in its body, plus lazy imports.
+        emit_signature_type_references(&node, source, &qualified, edges);
+        // CALLS, JSX renders, type references, HTTP & bridge descriptors, and lazy imports.
         if let Some(body) = find_child_by_kind(&node, "statement_block") {
-            let blocklist: HashSet<&str> = TS_BUILTIN_CALLS.iter().copied().collect();
-            let callees = extract_calls(&body, source, &self.language_name, &blocklist);
-            for callee in callees {
-                edges.push(ParsedEdge::new(qualified.clone(), callee, "calls"));
-            }
+            extract_body_references(body, source, &self.language_name, &qualified, edges, false);
             self.extract_module_imports_in_subtree(body, source, module_name, entities, edges);
         }
     }
@@ -669,9 +2075,7 @@ impl TypeScriptParser {
         }
 
         let qualified = format!("{}.{name}", scope_stack.join("."));
-        let params = find_child_by_kind(&node, "formal_parameters")
-            .map(|p| get_text(&p, source).to_string())
-            .unwrap_or_default();
+        let signature = fn_signature(&node, "parameters", None, source);
 
         let raw = get_text(&node, source);
         let complexity = count_complexity(&node, source, &self.language_name);
@@ -681,7 +2085,7 @@ impl TypeScriptParser {
             qualified_name: qualified.clone(),
             start_line: node.start_position().row,
             end_line: node.end_position().row,
-            signature: params,
+            signature,
             raw_text: super::truncate_str(raw, super::RAW_TEXT_LIMIT).to_string(),
             parent_qualified_name: Some(scope_stack.join(".")),
             docstring: get_doc_comment_for_declaration(&node, source),
@@ -696,13 +2100,10 @@ impl TypeScriptParser {
             "contains",
         ));
 
-        // CALLS edges from this method to callees in its body, plus lazy imports.
+        emit_signature_type_references(&node, source, &qualified, edges);
+        // CALLS, JSX renders, type references, HTTP & bridge descriptors, and lazy imports.
         if let Some(body) = find_child_by_kind(&node, "statement_block") {
-            let blocklist: HashSet<&str> = TS_BUILTIN_CALLS.iter().copied().collect();
-            let callees = extract_calls(&body, source, &self.language_name, &blocklist);
-            for callee in callees {
-                edges.push(ParsedEdge::new(qualified.clone(), callee, "calls"));
-            }
+            extract_body_references(body, source, &self.language_name, &qualified, edges, false);
             self.extract_module_imports_in_subtree(body, source, module_name, entities, edges);
         }
     }
@@ -738,9 +2139,33 @@ impl TypeScriptParser {
             NodeType::TypeAlias
         };
 
+        let mut bases = Vec::new();
+        if let Some(ext) = find_child_by_kind(&node, "extends_type_clause") {
+            let mut ec = ext.walk();
+            for sub in ext.named_children(&mut ec) {
+                if matches!(sub.kind(), "type_identifier" | "identifier") {
+                    let base = get_text(&sub, source).trim().to_string();
+                    if !base.is_empty() {
+                        bases.push(base.clone());
+                        let mut meta = HashMap::new();
+                        meta.insert("reference_kind".to_string(), json!("extends"));
+                        meta.insert("start_line".to_string(), json!(sub.start_position().row));
+                        meta.insert("end_line".to_string(), json!(sub.end_position().row));
+                        meta.insert("enclosing_symbol".to_string(), json!(qualified));
+                        edges.push(ParsedEdge::with_metadata(
+                            qualified.clone(),
+                            base,
+                            "inherits",
+                            meta,
+                        ));
+                    }
+                }
+            }
+        }
+
         entities.push(ParsedEntity {
             kind,
-            name,
+            name: name.clone(),
             qualified_name: qualified.clone(),
             start_line: node.start_position().row,
             end_line: node.end_position().row,
@@ -748,16 +2173,22 @@ impl TypeScriptParser {
             parent_qualified_name: Some(scope_stack.join(".")),
             signature: String::new(),
             docstring: get_doc_comment_for_declaration(&node, source),
-            bases: Vec::new(),
+            bases,
             imports: Vec::new(),
             cyclomatic_complexity: None,
         });
 
         edges.push(ParsedEdge::new(
             scope_stack.join("."),
-            qualified,
+            qualified.clone(),
             "contains",
         ));
+
+        let mut type_sites = Vec::new();
+        collect_type_references_in_type_node(node, source, Some(&name), &mut type_sites);
+        if !type_sites.is_empty() {
+            emit_grouped_references(&qualified, "type_references", type_sites, edges);
+        }
     }
 
     fn handle_import(
@@ -768,6 +2199,108 @@ impl TypeScriptParser {
         entities: &mut Vec<ParsedEntity>,
         edges: &mut Vec<ParsedEdge>,
     ) {
+        let mut bindings: Vec<Value> = Vec::new();
+        let mut imported_symbols: Vec<Value> = Vec::new();
+        let mut wildcard = false;
+        let mut has_named = false;
+        let mut has_default = false;
+        let mut has_namespace = false;
+
+        if let Some(clause) = find_child_by_kind(&node, "import_clause") {
+            let mut cc = clause.walk();
+            for part in clause.named_children(&mut cc) {
+                match part.kind() {
+                    "identifier" => {
+                        let local = get_text(&part, source).trim().to_string();
+                        if !local.is_empty() {
+                            has_default = true;
+                            imported_symbols.push(json!("default"));
+                            bindings.push(json!({
+                                "local": local,
+                                "imported": "default",
+                                "kind": "default",
+                            }));
+                        }
+                    }
+                    "namespace_import" => {
+                        if let Some(id) = find_child_by_kind(&part, "identifier") {
+                            let local = get_text(&id, source).trim().to_string();
+                            if !local.is_empty() {
+                                has_namespace = true;
+                                wildcard = true;
+                                bindings.push(json!({
+                                    "local": local,
+                                    "imported": "*",
+                                    "kind": "namespace",
+                                }));
+                            }
+                        }
+                    }
+                    "named_imports" => {
+                        let mut nc = part.walk();
+                        for spec in part.named_children(&mut nc) {
+                            if spec.kind() == "import_specifier" {
+                                let orig = spec
+                                    .child_by_field_name("name")
+                                    .map(|n| get_text(&n, source).trim().to_string())
+                                    .unwrap_or_default();
+                                let local = spec
+                                    .child_by_field_name("alias")
+                                    .map(|a| get_text(&a, source).trim().to_string())
+                                    .unwrap_or_else(|| orig.clone());
+                                if !orig.is_empty() && !local.is_empty() {
+                                    has_named = true;
+                                    imported_symbols.push(json!(orig));
+                                    bindings.push(json!({
+                                        "local": local,
+                                        "imported": orig,
+                                        "kind": "named",
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        } else if let Some(req_clause) = find_child_by_kind(&node, "import_require_clause") {
+            wildcard = true;
+            has_namespace = true;
+            if let Some(id) = find_child_by_kind(&req_clause, "identifier") {
+                let local = get_text(&id, source).trim().to_string();
+                if !local.is_empty() {
+                    bindings.push(json!({
+                        "local": local,
+                        "imported": "*",
+                        "kind": "namespace",
+                    }));
+                }
+            }
+        } else {
+            // Side-effect import (`import './polyfill'`)
+            wildcard = true;
+        }
+
+        let reference_kind = if has_named {
+            "imports_named"
+        } else if has_default {
+            "imports_default"
+        } else if has_namespace {
+            "imports_namespace"
+        } else {
+            "imports_side_effect"
+        };
+
+        let mut meta = HashMap::new();
+        meta.insert("reference_kind".to_string(), json!(reference_kind));
+        meta.insert("wildcard_import".to_string(), json!(wildcard));
+        if !imported_symbols.is_empty() {
+            meta.insert("imported_symbols".to_string(), Value::Array(imported_symbols));
+        }
+        if !bindings.is_empty() {
+            meta.insert("import_bindings".to_string(), Value::Array(bindings));
+        }
+
         // Extract module specifier from ESM `source` or TS `import x = require(...)`.
         let source_node = node.child_by_field_name("source").or_else(|| {
             find_child_by_kind(&node, "import_require_clause")
@@ -775,7 +2308,14 @@ impl TypeScriptParser {
         });
         if let Some(src) = source_node {
             if let Some(import_path) = extract_string_literal(&src, source) {
-                self.emit_import(node, &import_path, module_name, entities, edges);
+                self.emit_import_with_metadata(
+                    node,
+                    &import_path,
+                    module_name,
+                    entities,
+                    edges,
+                    meta,
+                );
                 return;
             }
         }
@@ -783,7 +2323,14 @@ impl TypeScriptParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if let Some(import_path) = extract_string_literal(&child, source) {
-                self.emit_import(node, &import_path, module_name, entities, edges);
+                self.emit_import_with_metadata(
+                    node,
+                    &import_path,
+                    module_name,
+                    entities,
+                    edges,
+                    meta,
+                );
                 break;
             }
         }
@@ -817,6 +2364,14 @@ impl TypeScriptParser {
                 .map(|n| get_text(&n, source).to_string())
                 .unwrap_or_default();
 
+            if let Some(ann) = find_child_by_kind(&child, "type_annotation") {
+                let mut type_sites = Vec::new();
+                collect_type_references_in_type_node(ann, source, None, &mut type_sites);
+                if !type_sites.is_empty() {
+                    emit_grouped_references(module_name, "type_references", type_sites, edges);
+                }
+            }
+
             if let Some(val) = value_node {
                 if matches!(
                     val.kind(),
@@ -834,6 +2389,14 @@ impl TypeScriptParser {
                             scope_stack,
                         );
                     } else {
+                        extract_body_references(
+                            val,
+                            source,
+                            &self.language_name,
+                            module_name,
+                            edges,
+                            true,
+                        );
                         self.extract_module_imports_in_subtree(
                             val,
                             source,
@@ -845,7 +2408,68 @@ impl TypeScriptParser {
                     continue;
                 }
 
-                self.extract_module_imports_in_subtree(val, source, module_name, entities, edges);
+                if let Some(spec) = extract_module_import_call(&val, source) {
+                    let mut meta = HashMap::new();
+                    if let Some(pat) = name_node.filter(|n| n.kind() == "object_pattern") {
+                        let (bindings, imported_symbols, wildcard) =
+                            collect_object_pattern_bindings(pat, source);
+                        meta.insert("reference_kind".to_string(), json!("imports_named"));
+                        meta.insert("wildcard_import".to_string(), json!(wildcard));
+                        if !imported_symbols.is_empty() {
+                            meta.insert(
+                                "imported_symbols".to_string(),
+                                Value::Array(imported_symbols),
+                            );
+                        }
+                        if !bindings.is_empty() {
+                            meta.insert("import_bindings".to_string(), Value::Array(bindings));
+                        }
+                    } else if !ident_name.is_empty() {
+                        meta.insert("reference_kind".to_string(), json!("imports_namespace"));
+                        meta.insert("wildcard_import".to_string(), json!(true));
+                        meta.insert(
+                            "import_bindings".to_string(),
+                            json!([{
+                                "local": ident_name,
+                                "imported": "*",
+                                "kind": "namespace",
+                            }]),
+                        );
+                    }
+                    self.emit_import_with_metadata(val, &spec, module_name, entities, edges, meta);
+                } else if let Some((spec, prop_name)) = require_member_access(val, source) {
+                    let mut meta = HashMap::new();
+                    meta.insert("reference_kind".to_string(), json!("imports_named"));
+                    meta.insert("wildcard_import".to_string(), json!(false));
+                    meta.insert("imported_symbols".to_string(), json!([prop_name]));
+                    if !ident_name.is_empty() {
+                        meta.insert(
+                            "import_bindings".to_string(),
+                            json!([{
+                                "local": ident_name,
+                                "imported": prop_name,
+                                "kind": "named",
+                            }]),
+                        );
+                    }
+                    self.emit_import_with_metadata(val, &spec, module_name, entities, edges, meta);
+                } else {
+                    extract_body_references(
+                        val,
+                        source,
+                        &self.language_name,
+                        module_name,
+                        edges,
+                        true,
+                    );
+                    self.extract_module_imports_in_subtree(
+                        val,
+                        source,
+                        module_name,
+                        entities,
+                        edges,
+                    );
+                }
             }
 
             if ident_name.len() < 2 {
@@ -1025,6 +2649,7 @@ impl TypeScriptParser {
                 }
             }
             None => {
+                extract_ts_http_and_bridges(&node, source, module_name, edges);
                 self.walk_node(right, source, module_name, entities, edges, scope_stack);
             }
         }
@@ -1410,5 +3035,223 @@ module.exports = {
         assert!(entities
             .iter()
             .any(|e| e.kind == NodeType::Import && e.name == "./extra.cjs"));
+    }
+
+    #[test]
+    fn extracts_call_sites_imports_jsx_heritage_types_signatures_and_bridges() {
+        let tsx = TypeScriptParser::new("tsx");
+        let source = r#"
+import React, { useState, Button as UIButton } from './ui/Button';
+import * as Icons from './icons';
+const { readAppFunctions } = require('./browser_source_commands.cjs');
+export { Panel, Helper as PublicHelper } from './panel';
+export * from './star';
+
+interface BaseProps {}
+interface CustomProps extends BaseProps {
+    item: DomainItem;
+}
+
+class CustomButton extends BaseControl implements Renderable {
+    render(): JSXNode {
+        return <UIButton />;
+    }
+}
+
+export function Page(props: CustomProps): ScreenResult {
+    readAppFunctions();
+    Icons.draw();
+    readAppFunctions();
+    window.__psLive.sync();
+    commands.readAdapterBundle();
+    fetch('/api/items/42?full=1', { method: 'POST' });
+    return <CustomButton />;
+}
+
+test('top level spec block', () => {
+    Page({ item: {} as DomainItem });
+});
+"#;
+        let (entities, edges) = tsx.parse(source, "src/Page.tsx");
+
+        // Rich signature includes return type
+        let page = entities.iter().find(|e| e.name == "Page").unwrap();
+        assert_eq!(page.signature, "(props: CustomProps): ScreenResult");
+
+        // Named import metadata
+        let ui_import = edges
+            .iter()
+            .find(|e| e.relationship == "imports" && e.target_qualified_name == "./ui/Button")
+            .unwrap();
+        assert_eq!(
+            ui_import.metadata.get("reference_kind"),
+            Some(&json!("imports_named"))
+        );
+        assert_eq!(
+            ui_import.metadata.get("imported_symbols"),
+            Some(&json!(["default", "useState", "Button"]))
+        );
+
+        // CJS destructured require metadata
+        let cjs_import = edges
+            .iter()
+            .find(|e| {
+                e.relationship == "imports"
+                    && e.target_qualified_name == "./browser_source_commands.cjs"
+            })
+            .unwrap();
+        assert_eq!(
+            cjs_import.metadata.get("imported_symbols"),
+            Some(&json!(["readAppFunctions"]))
+        );
+        assert_eq!(cjs_import.metadata.get("wildcard_import"), Some(&json!(false)));
+
+        // Re-export metadata
+        let panel_reexport = edges
+            .iter()
+            .find(|e| e.relationship == "imports" && e.target_qualified_name == "./panel")
+            .unwrap();
+        assert_eq!(panel_reexport.metadata.get("is_reexport"), Some(&json!(true)));
+        let star_reexport = edges
+            .iter()
+            .find(|e| e.relationship == "imports" && e.target_qualified_name == "./star")
+            .unwrap();
+        assert_eq!(star_reexport.metadata.get("wildcard_import"), Some(&json!(true)));
+
+        // Heritage extends vs implements
+        assert!(edges.iter().any(|e| e.relationship == "inherits"
+            && e.target_qualified_name == "BaseControl"
+            && e.metadata.get("reference_kind") == Some(&json!("extends"))));
+        assert!(edges.iter().any(|e| e.relationship == "implements"
+            && e.target_qualified_name == "Renderable"
+            && e.metadata.get("reference_kind") == Some(&json!("implements"))));
+
+        // Multiple call sites with line numbers
+        let multi_call = edges
+            .iter()
+            .find(|e| {
+                e.relationship == "calls"
+                    && e.source_qualified_name == "src.Page.Page"
+                    && e.target_qualified_name == "readAppFunctions"
+            })
+            .unwrap();
+        assert_eq!(multi_call.metadata.get("start_line"), Some(&json!(19)));
+        assert_eq!(
+            multi_call
+                .metadata
+                .get("sites")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len()),
+            Some(2)
+        );
+
+        // Namespace-qualified call retains qualifier
+        let ns_call = edges
+            .iter()
+            .find(|e| e.relationship == "calls" && e.target_qualified_name == "draw")
+            .unwrap();
+        assert_eq!(ns_call.metadata.get("qualifier"), Some(&json!("Icons")));
+
+        // JSX renders
+        assert!(edges.iter().any(|e| e.relationship == "references"
+            && e.source_qualified_name == "src.Page.Page"
+            && e.target_qualified_name == "CustomButton"
+            && e.metadata.get("reference_kind") == Some(&json!("renders"))));
+
+        // TypeScript type references
+        assert!(edges.iter().any(|e| e.relationship == "references"
+            && e.source_qualified_name == "src.Page.Page"
+            && e.target_qualified_name == "CustomProps"
+            && e.metadata.get("reference_kind") == Some(&json!("type_references"))));
+        assert!(edges.iter().any(|e| e.relationship == "references"
+            && e.source_qualified_name == "src.Page.CustomProps"
+            && e.target_qualified_name == "DomainItem"
+            && e.metadata.get("reference_kind") == Some(&json!("type_references"))));
+
+        // Global bridge, commands bridge, and HTTP client descriptors
+        assert!(edges.iter().any(|e| e.relationship == "references"
+            && e.metadata.get("reference_kind") == Some(&json!("bridge_caller"))
+            && e.metadata.get("bridge_namespace") == Some(&json!("window.__psLive"))
+            && e.metadata.get("bridge_member") == Some(&json!("sync"))));
+        assert!(edges.iter().any(|e| e.relationship == "references"
+            && e.metadata.get("reference_kind") == Some(&json!("bridge_caller"))
+            && e.metadata.get("bridge_namespace") == Some(&json!("commands"))
+            && e.metadata.get("bridge_member") == Some(&json!("readAdapterBundle"))));
+        assert!(edges.iter().any(|e| e.relationship == "references"
+            && e.metadata.get("reference_kind") == Some(&json!("http_route_client"))
+            && e.metadata.get("http_method") == Some(&json!("POST"))
+            && e.metadata.get("norm_path") == Some(&json!("/api/items/42"))));
+
+        // Top-level callback (test/describe) captures calls
+        assert!(edges.iter().any(|e| e.relationship == "calls"
+            && e.source_qualified_name == "src.Page"
+            && e.target_qualified_name == "Page"));
+    }
+
+    #[test]
+    fn extracts_express_routes_and_bridge_providers() {
+        let parser = TypeScriptParser::new("typescript");
+        let source = r#"
+function createUser(req, res) {}
+function syncNow() {}
+router.post('/api/users/:id', createUser);
+router.get('/api/users', (req, res) => { return null; });
+window.__psLive.sync = createUser;
+(window as any).__live = { syncNow };
+(window as any).__live.syncNow();
+export const config = {
+    commands: require('./browser_source_commands.cjs'),
+};
+export default {
+    browser: {
+        commands: require('./commands.cjs'),
+    },
+};
+"#;
+        let (_, edges) = parser.parse(source, "server/routes.ts");
+
+        let post_route = edges
+            .iter()
+            .find(|e| {
+                e.metadata.get("reference_kind") == Some(&json!("http_route_handler"))
+                    && e.metadata.get("http_method") == Some(&json!("POST"))
+            })
+            .unwrap();
+        assert_eq!(
+            post_route.metadata.get("norm_path"),
+            Some(&json!("/api/users/:param"))
+        );
+        assert_eq!(
+            post_route.metadata.get("handler_symbol"),
+            Some(&json!("createUser"))
+        );
+
+        assert!(edges.iter().any(|e| {
+            e.metadata.get("reference_kind") == Some(&json!("bridge_provider"))
+                && e.metadata.get("bridge_namespace") == Some(&json!("window.__psLive"))
+                && e.metadata.get("bridge_member") == Some(&json!("sync"))
+        }));
+        assert!(edges.iter().any(|e| {
+            e.metadata.get("reference_kind") == Some(&json!("bridge_provider"))
+                && e.metadata.get("bridge_namespace") == Some(&json!("window.__live"))
+                && e.metadata.get("bridge_member") == Some(&json!("syncNow"))
+        }));
+        assert!(edges.iter().any(|e| {
+            e.metadata.get("reference_kind") == Some(&json!("bridge_caller"))
+                && e.metadata.get("bridge_namespace") == Some(&json!("window.__live"))
+                && e.metadata.get("bridge_member") == Some(&json!("syncNow"))
+        }));
+        assert!(edges.iter().any(|e| {
+            e.metadata.get("reference_kind") == Some(&json!("bridge_provider"))
+                && e.metadata.get("bridge_namespace") == Some(&json!("commands"))
+                && e.metadata.get("bridge_member") == Some(&json!("*"))
+                && e.metadata.get("target_specifier") == Some(&json!("./browser_source_commands.cjs"))
+        }));
+        assert!(edges.iter().any(|e| {
+            e.metadata.get("reference_kind") == Some(&json!("bridge_provider"))
+                && e.metadata.get("bridge_namespace") == Some(&json!("commands"))
+                && e.metadata.get("bridge_member") == Some(&json!("*"))
+                && e.metadata.get("target_specifier") == Some(&json!("./commands.cjs"))
+        }));
     }
 }

@@ -40,6 +40,7 @@ class _NativeEdge(TypedDict):
     target_qualified_name: str
     relationship: str
     weight: NotRequired[float]
+    metadata: NotRequired[dict[str, object]]
 
 
 class _NativePayload(TypedDict):
@@ -103,6 +104,7 @@ class NativeParser:
                 target_qualified_name=item["target_qualified_name"],
                 relationship=RelationshipType(item["relationship"]),
                 weight=float(item.get("weight", 1.0)),
+                metadata=dict(item.get("metadata", {})),
             )
             for item in payload["edges"]
         ]

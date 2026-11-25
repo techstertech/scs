@@ -14,7 +14,10 @@ use tree_sitter::{Node, Parser};
 
 use scs_core::node_types::NodeType;
 
-use super::{count_complexity, extract_calls, LanguageParser, ParsedEdge, ParsedEntity};
+use super::{
+    build_call_edges, count_complexity, extract_call_sites, LanguageParser, ParsedEdge,
+    ParsedEntity,
+};
 
 /// Elixir language keywords and constructs to exclude from call-graph edges.
 /// In Elixir's tree-sitter grammar, control flow and module definitions are
@@ -581,10 +584,8 @@ impl ElixirParser {
         // CALLS edges from this function to callees in its body.
         if let Some(body) = do_block {
             let blocklist: HashSet<&str> = ELIXIR_KEYWORD_CALLS.iter().copied().collect();
-            let callees = extract_calls(&body, source, "elixir", &blocklist);
-            for callee in callees {
-                edges.push(ParsedEdge::new(qualified.clone(), callee, "calls"));
-            }
+            let sites = extract_call_sites(&body, source, "elixir", &blocklist);
+            edges.extend(build_call_edges(&qualified, sites));
         }
     }
 
