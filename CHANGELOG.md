@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.1 - 2026-11-24
+
+- fix(query): traverse incoming `IMPORTS` via the symbol's enclosing `File`
+  node in `Playbook.REFERENCES` and support `file_paths` narrowing with
+  `symbol_name`
+- fix(indexing): resolve extensionless JS/TS imports and `tsconfig.json`/
+  `jsconfig.json` `paths`/`baseUrl` aliases, avoid sibling-stem `File`
+  `qualified_name` collisions (e.g., `Button.css` vs `Button.tsx`), and
+  reconcile missing JS/TS `IMPORTS` edges incrementally without re-parsing
+  unchanged files
+- fix(query,config): raise `balanced` (`1.5s`) and `thorough` (`2.5s`)
+  classifier budgets and `decision_timeout_seconds` default (`1.5s`, max `5.0s`)
+  with a `5.0s` POST socket timeout so parallel queries under serialized
+  external decision services do not trigger `classifier_timeout`
+
 ## 0.6.0 - 2026-11-24
 
 - feat(parser): add native Java (`.java`) ingestion and test-path detection
