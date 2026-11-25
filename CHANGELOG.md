@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.1 - 2026-11-25
+
+- fix(parser,indexing,contracts): unwrap top-level & revealing-module JS IIFEs,
+  extract 2-segment `window.*` globals & `Object.assign(window, ...)`
+  providers (filtering standard DOM globals), extract
+  `new URL(..., import.meta.url)` asset imports and HTML `<script src>` edges,
+  resolve root-relative `/...` & `?raw` specifiers, and raise contract source
+  scanning limit to avoid `"oversized"` contract gaps on large code files
+- fix(impact,query): raise `REVIEW_DEPTH` to 3, bridge non-`FILE` intermediate
+  nodes via `CONTAINS` to owning files across hops >= 1, upgrade file-path
+  `IMPACT` traversal to 3-hop BFS with `dependency_paths`, and compute
+  transitive `test_targets` across all reachable dependents before slicing
+- fix(indexing,query): preserve `(start_line, end_line)` on reconciled JS/TS
+  import edges, fall back non-`FILE` reference lines to symbol spans, and bump
+  `STRUCTURAL_EDGE_SCHEMA_VERSION` (`parser_version = 2`) to auto-upgrade
+  pre-`0.7.1` indexes during ingestion and `refresh_dirty`
+- fix(query): deduplicate `evidence.files` by `file_path` (folding repeated
+  `unresolved_range` hunks into `ranges` / `unresolved_ranges`) before computing
+  `total_counts` and applying `limit`
+
 ## 0.7.0 - 2026-11-25
 
 - feat(parser,indexing): resolve symbol-level call sites (`calls`), named/default

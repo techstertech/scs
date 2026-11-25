@@ -36,7 +36,7 @@ Download the installer and checksum manifest from the same
 installer, and install SCS:
 
 ```bash
-VERSION=0.7.0
+VERSION=0.7.1
 curl -fsSLO "https://github.com/techstertech/scs/releases/download/v${VERSION}/scs-installer-${VERSION}.sh"
 curl -fsSLO "https://github.com/techstertech/scs/releases/download/v${VERSION}/SHA256SUMS"
 shasum -a 256 -c SHA256SUMS --ignore-missing
