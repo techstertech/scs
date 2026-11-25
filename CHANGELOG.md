@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.0 - 2026-11-25
+
+- feat(parser,indexing): resolve symbol-level call sites (`calls`), named/default
+  ESM & CommonJS imports (`imports_named`, `imports_default`), JSX component
+  renders (`renders`), heritage (`extends`, `implements`), and TypeScript type
+  references (`type_references`) with exact `start_line`, `end_line`, and
+  `enclosing_symbol` metadata while filtering false-positive coarse `IMPORTS`
+- feat(query,impact): enforce `request.limit` across all evidence buckets with
+  `total_counts` (including un-sliced `IMPACT`/`INVENTORY` totals) and
+  `truncated`, rank results by specificity tier and hop distance, and populate
+  `test_targets` across dependency playbooks (`IMPACT`, `REFERENCES`,
+  `RELATIONSHIPS`, `UNDERSTAND`) while keeping `DISCOVER` `not_assessed`
+- feat(mcp,orchestration): add optional `include_signatures` and
+  `include_snippets` flags on `query_code` for compact declaration headers and
+  trimmed 1–2 line call-site excerpts after limit slicing
+- feat(orchestration): add optional explicit `playbook` override on
+  `query_code` to bypass classifier latency while validating anchor eligibility
+- feat(indexing): resolve multi-hop barrel re-exports (`export { ... } from`,
+  `export * from`, `export default`) with cycle protection and extract generic
+  HTTP route (`http_route`) and `window.*`/`globalThis.*`/`commands` RPC
+  (`rpc_bridge`) cross-boundary edges
+- feat(indexing,daemon,mcp): add `diff_impact` git-diff range collection and
+  `refresh_dirty` synchronous daemon freshness before `query_code` execution
+
 ## 0.6.1 - 2026-11-24
 
 - fix(query): traverse incoming `IMPORTS` via the symbol's enclosing `File`
