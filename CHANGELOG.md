@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.2 - 2026-11-26
+
+- fix(storage): deduplicate multi-relationship neighbor IDs in
+  `KnowledgeGraph::get_neighbors` before calling `tsg::Store::get_nodes` and
+  switch `KnowledgeGraph::traverse` to shortest-path BFS so `UNDERSTAND` and
+  `RELATIONSHIPS` traversals never fail when two relationship types share endpoints
+- perf(tsg): use unfiltered USearch search for single-scope queries and
+  key-only `filtered_search` with lazy node hydration for filtered queries
+  instead of loading and JSON-parsing all nodes on every vector search
+- fix(search,query,config): cap reranker candidates (`MAX_RERANK_CANDIDATES = 64`,
+  `BALANCED_RERANK_CANDIDATES = 24`) to prevent HTTP 422 `too many documents`
+  errors in `thorough` mode, surface structured reranker HTTP error details,
+  and adjust `fast`/`balanced`/`thorough` query and decision timeouts
+- fix(contracts): raise `MAX_DOCUMENT_BYTES` to `256 KiB`, add basename-prefiltered
+  catalog scanning up to `2,048` files / `16 MiB`, and ignore cross-repo links
+  during unrelated `specs/`/`decisions/` backlink scans while preserving strict
+  containment on symlinks, sources, explicit contracts, and `superseded-by`
+- fix(parser,indexing): resolve monorepo Python sub-package imports and
+  `__init__.py` re-exports, add lexical receiver-type inference for Python and
+  TypeScript (`qualifier.method()` via typed params, constructors, factory
+  return types, and class fields), and bump `STRUCTURAL_EDGE_SCHEMA_VERSION`
+  (`parser_version = 3`) for automatic index upgrade
+
 ## 0.7.1 - 2026-11-25
 
 - fix(parser,indexing,contracts): unwrap top-level & revealing-module JS IIFEs,
