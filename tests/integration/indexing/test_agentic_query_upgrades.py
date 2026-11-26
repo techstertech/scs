@@ -45,6 +45,8 @@ async def _running_indexed_daemon(
     settings = SCSSettings(
         decision_model="disabled",
         embedding_provider="openai_compatible",
+        reranking_provider="disabled",
+        reranking_model=None,
         home=tmp_path / "home",
         model_cache=tmp_path / "models",
         runtime_dir=runtime_dir,
