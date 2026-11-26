@@ -1,6 +1,6 @@
 //! SCS compatibility adapter over the generic TSG storage engine.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::{Mutex, MutexGuard};
@@ -487,6 +487,7 @@ impl KnowledgeGraph {
     ) -> SCSResult<Vec<Node>> {
         let (limit, _) = page(limit, 0)?;
         let store = self.lock()?;
+        let mut seen = HashSet::new();
         let ids: Vec<_> = store
             .get_edges(id, direction.into(), relationship)
             .map_err(tsg_error)?
@@ -500,6 +501,10 @@ impl KnowledgeGraph {
                     e.target_id
                 }
             })
+            // Multiple relationship types (for example `calls` and `references`)
+            // can connect the same pair of nodes; TSG `get_nodes` rejects
+            // duplicate IDs, so deduplicate before applying `limit`.
+            .filter(|neighbor_id| seen.insert(neighbor_id.clone()))
             .take(limit)
             .collect();
         convert_nodes(store.get_nodes(&ids).map_err(tsg_error)?)
@@ -519,8 +524,8 @@ impl KnowledgeGraph {
         }
         let mut results = Vec::new();
         let mut visited = HashSet::from([start.to_string()]);
-        let mut frontier = vec![(start.to_string(), 0_i32, vec![start.to_string()])];
-        while let Some((id, depth, path)) = frontier.pop() {
+        let mut frontier = VecDeque::from([(start.to_string(), 0_i32, vec![start.to_string()])]);
+        while let Some((id, depth, path)) = frontier.pop_front() {
             let node = self
                 .get_node(&id)?
                 .ok_or_else(|| SCSError::NotFound(id.clone()))?;
@@ -536,7 +541,7 @@ impl KnowledgeGraph {
                 if visited.insert(neighbor.id.clone()) {
                     let mut next = path.clone();
                     next.push(neighbor.id.clone());
-                    frontier.push((neighbor.id, depth + 1, next));
+                    frontier.push_back((neighbor.id, depth + 1, next));
                 }
             }
         }
@@ -1364,6 +1369,74 @@ mod tests {
         let now = utc_now_rfc3339();
         assert_eq!(now.len(), 30);
         assert!(now.ends_with('Z'));
+    }
+
+    #[test]
+    fn get_neighbors_and_traverse_deduplicate_multi_relationship_edges() {
+        let (_directory, graph) = graph();
+        let repository = graph.get_or_create_repo("/repo").unwrap();
+
+        for (id, kind, name) in [
+            ("leaf", NodeType::Function, "loadOnce"),
+            ("mid", NodeType::Function, "loadSessions"),
+            ("caller", NodeType::File, "sessions-wire.test.ts"),
+            ("other", NodeType::Function, "otherCaller"),
+        ] {
+            graph
+                .upsert_node(id, kind, name, "", None, None, Some(repository.id))
+                .unwrap();
+        }
+
+        // Two distinct relationship types connecting the same pair of nodes.
+        graph.upsert_edge("caller", "mid", "calls", 1.0, None).unwrap();
+        graph.upsert_edge("caller", "mid", "references", 1.0, None).unwrap();
+        graph.upsert_edge("other", "mid", "calls", 1.0, None).unwrap();
+        graph.upsert_edge("mid", "leaf", "calls", 1.0, None).unwrap();
+        // Direct edge plus 2-hop path verifies BFS records shortest depth (1).
+        graph.upsert_edge("caller", "leaf", "references", 1.0, None).unwrap();
+
+        let incoming_neighbors = graph
+            .get_neighbors("mid", None, EdgeDirection::Incoming, 10)
+            .unwrap();
+        let incoming_ids: HashSet<_> = incoming_neighbors.iter().map(|n| n.id.as_str()).collect();
+        assert_eq!(incoming_neighbors.len(), 2);
+        assert_eq!(incoming_ids, HashSet::from(["caller", "other"]));
+
+        // Limit applies after deduplication so duplicate edges do not consume slots.
+        let limited = graph
+            .get_neighbors("mid", None, EdgeDirection::Incoming, 2)
+            .unwrap();
+        assert_eq!(limited.len(), 2);
+
+        let both_neighbors = graph
+            .get_neighbors("mid", None, EdgeDirection::Both, 10)
+            .unwrap();
+        let both_ids: HashSet<_> = both_neighbors.iter().map(|n| n.id.as_str()).collect();
+        assert_eq!(both_neighbors.len(), 3);
+        assert_eq!(both_ids, HashSet::from(["caller", "other", "leaf"]));
+
+        let mid_traversal = graph
+            .traverse("mid", 1, None, TraversalDirection::Incoming)
+            .unwrap();
+        let mid_depths: HashMap<_, _> = mid_traversal
+            .iter()
+            .map(|r| (r.node.id.as_str(), r.depth))
+            .collect();
+        assert_eq!(mid_depths.get("mid"), Some(&0));
+        assert_eq!(mid_depths.get("caller"), Some(&1));
+        assert_eq!(mid_depths.get("other"), Some(&1));
+
+        let leaf_traversal = graph
+            .traverse("leaf", 2, None, TraversalDirection::Incoming)
+            .unwrap();
+        let leaf_depths: HashMap<_, _> = leaf_traversal
+            .iter()
+            .map(|r| (r.node.id.as_str(), r.depth))
+            .collect();
+        assert_eq!(leaf_depths.get("leaf"), Some(&0));
+        assert_eq!(leaf_depths.get("mid"), Some(&1));
+        assert_eq!(leaf_depths.get("caller"), Some(&1));
+        assert_eq!(leaf_depths.get("other"), Some(&2));
     }
 }
 

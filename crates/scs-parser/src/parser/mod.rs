@@ -371,6 +371,7 @@ pub fn count_complexity(node: &Node, source: &[u8], language: &str) -> u32 {
 pub struct CallSite {
     pub name: String,
     pub qualifier: Option<String>,
+    pub receiver_type: Option<String>,
     pub start_line: usize,
     pub end_line: usize,
 }
@@ -661,6 +662,7 @@ pub fn extract_call_sites(
                     sites.push(CallSite {
                         name,
                         qualifier,
+                        receiver_type: None,
                         start_line: n.start_position().row,
                         end_line: n.end_position().row,
                     });
@@ -716,10 +718,16 @@ pub fn build_call_edges(enclosing_qname: &str, sites: Vec<CallSite>) -> Vec<Pars
             });
 
             let mut qualifiers: Vec<String> = Vec::new();
+            let mut receiver_types: Vec<String> = Vec::new();
             for site in &callee_sites {
                 if let Some(q) = &site.qualifier {
                     if !qualifiers.contains(q) {
                         qualifiers.push(q.clone());
+                    }
+                }
+                if let Some(rt) = &site.receiver_type {
+                    if !receiver_types.contains(rt) {
+                        receiver_types.push(rt.clone());
                     }
                 }
             }
@@ -740,6 +748,12 @@ pub fn build_call_edges(enclosing_qname: &str, sites: Vec<CallSite>) -> Vec<Pars
             if qualifiers.len() > 1 {
                 meta.insert("qualifiers".to_string(), json!(qualifiers));
             }
+            if let Some(first_rt) = receiver_types.first() {
+                meta.insert("receiver_type".to_string(), json!(first_rt));
+            }
+            if receiver_types.len() > 1 {
+                meta.insert("receiver_types".to_string(), json!(receiver_types));
+            }
 
             let site_entries: Vec<Value> = callee_sites
                 .into_iter()
@@ -751,6 +765,9 @@ pub fn build_call_edges(enclosing_qname: &str, sites: Vec<CallSite>) -> Vec<Pars
                     entry.insert("reference_kind".to_string(), json!("calls"));
                     if let Some(q) = site.qualifier {
                         entry.insert("qualifier".to_string(), json!(q));
+                    }
+                    if let Some(rt) = site.receiver_type {
+                        entry.insert("receiver_type".to_string(), json!(rt));
                     }
                     Value::Object(entry)
                 })

@@ -80,9 +80,9 @@ class ModeBudget:
 
 
 MODE_BUDGETS: dict[QueryMode, ModeBudget] = {
-    "fast": ModeBudget(0.15, 5, 1, 1, 1.0),
-    "balanced": ModeBudget(1.5, 10, 2, 3, 7.0),
-    "thorough": ModeBudget(2.5, 20, 3, 5, 35.0),
+    "fast": ModeBudget(0.5, 5, 1, 1, 3.0),
+    "balanced": ModeBudget(2.0, 10, 2, 3, 12.0),
+    "thorough": ModeBudget(3.0, 20, 3, 5, 35.0),
 }
 
 REFERENCE_RELATIONSHIPS = (

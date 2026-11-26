@@ -12,8 +12,8 @@ use tree_sitter::{Node, Parser};
 use scs_core::node_types::NodeType;
 
 use super::{
-    build_call_edges, count_complexity, extract_call_sites, normalize_http_path, LanguageParser,
-    ParsedEdge, ParsedEntity, MAX_SITES_PER_EDGE,
+    build_call_edges, count_complexity, extract_call_sites, normalize_http_path, CallSite,
+    LanguageParser, ParsedEdge, ParsedEntity, MAX_SITES_PER_EDGE,
 };
 
 /// File extensions handled by [`TypeScriptParser`].
@@ -1367,6 +1367,437 @@ fn collect_type_references_in_type_node(
     }
 }
 
+const TS_IGNORED_TYPES: &[&str] = &[
+    "string",
+    "number",
+    "boolean",
+    "bigint",
+    "symbol",
+    "void",
+    "any",
+    "unknown",
+    "never",
+    "object",
+    "null",
+    "undefined",
+    "Record",
+    "Array",
+    "ReadonlyArray",
+    "Map",
+    "Set",
+    "WeakMap",
+    "WeakSet",
+    "Date",
+    "RegExp",
+    "Error",
+    "Promise",
+    "Function",
+];
+
+fn split_ts_top_level(text: &str, sep: char) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0_usize;
+    let mut start = 0_usize;
+    for (idx, ch) in text.char_indices() {
+        match ch {
+            '<' | '(' | '[' | '{' => depth += 1,
+            '>' | ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            c if c == sep && depth == 0 => {
+                parts.push(text[start..idx].trim());
+                start = idx + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    parts.push(text[start..].trim());
+    parts
+}
+
+fn unwrap_ts_generic<'a>(text: &'a str, wrapper: &str) -> Option<&'a str> {
+    let rest = text.strip_prefix(wrapper)?.trim_start();
+    let inner = rest.strip_prefix('<')?.strip_suffix('>')?;
+    Some(inner.trim())
+}
+
+fn normalize_ts_type_name(raw: &str) -> Option<String> {
+    let mut current = raw
+        .trim()
+        .strip_prefix(':')
+        .unwrap_or(raw)
+        .trim()
+        .strip_prefix("readonly ")
+        .unwrap_or_else(|| raw.trim().strip_prefix(':').unwrap_or(raw).trim())
+        .trim();
+    if current.is_empty() {
+        return None;
+    }
+
+    for _ in 0..4 {
+        if let Some(inner) = unwrap_ts_generic(current, "Promise")
+            .or_else(|| unwrap_ts_generic(current, "Readonly"))
+            .or_else(|| unwrap_ts_generic(current, "Partial"))
+            .or_else(|| unwrap_ts_generic(current, "Required"))
+            .or_else(|| unwrap_ts_generic(current, "NonNullable"))
+        {
+            current = inner;
+            continue;
+        }
+        let union_parts = split_ts_top_level(current, '|');
+        if union_parts.len() > 1 {
+            let non_null: Vec<&str> = union_parts
+                .into_iter()
+                .filter(|p| !p.is_empty() && !matches!(*p, "null" | "undefined" | "void"))
+                .collect();
+            if non_null.len() == 1 {
+                current = non_null[0];
+                continue;
+            }
+            return None;
+        }
+        break;
+    }
+
+    if let Some(angle) = current.find('<') {
+        current = current[..angle].trim();
+    }
+    if current.is_empty() || current.len() > 128 {
+        return None;
+    }
+    if !current
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$' || c == '.')
+    {
+        return None;
+    }
+    let leaf = current.rsplit('.').next().unwrap_or(current);
+    if leaf.is_empty() || TS_IGNORED_TYPES.contains(&leaf) {
+        return None;
+    }
+    Some(current.to_string())
+}
+
+fn collect_ts_param_types(fn_node: Node, source: &[u8], out: &mut HashMap<String, String>) {
+    let params = fn_node
+        .child_by_field_name("parameters")
+        .or_else(|| find_child_by_kind(&fn_node, "formal_parameters"));
+    let Some(params) = params else {
+        return;
+    };
+    let mut cursor = params.walk();
+    for param in params.named_children(&mut cursor) {
+        if !matches!(param.kind(), "required_parameter" | "optional_parameter") {
+            continue;
+        }
+        let ty = param
+            .child_by_field_name("type")
+            .or_else(|| find_child_by_kind(&param, "type_annotation"))
+            .and_then(|t| normalize_ts_type_name(get_text(&t, source)));
+        let Some(ty_name) = ty else {
+            continue;
+        };
+        let pattern = param.child_by_field_name("pattern").or_else(|| {
+            let mut pc = param.walk();
+            let found = param
+                .named_children(&mut pc)
+                .find(|c| matches!(c.kind(), "identifier" | "accessibility_modifier"));
+            found
+        });
+        let mut is_prop_param = false;
+        let mut ident_name: Option<String> = None;
+        let mut pc = param.walk();
+        for child in param.named_children(&mut pc) {
+            if matches!(child.kind(), "accessibility_modifier" | "readonly") {
+                is_prop_param = true;
+            } else if ident_name.is_none() && child.kind() == "identifier" {
+                ident_name = Some(get_text(&child, source).trim().to_string());
+            }
+        }
+        if ident_name.is_none() {
+            if let Some(p) = pattern {
+                if p.kind() == "identifier" {
+                    ident_name = Some(get_text(&p, source).trim().to_string());
+                }
+            }
+        }
+        if let Some(name) = ident_name {
+            if !name.is_empty() {
+                if is_prop_param {
+                    out.insert(format!("this.{name}"), ty_name.clone());
+                }
+                out.insert(name, ty_name);
+            }
+        }
+    }
+}
+
+fn collect_ts_file_return_types(program: Node, source: &[u8]) -> HashMap<String, String> {
+    let mut returns = HashMap::new();
+    let mut cursor = program.walk();
+    for child in program.named_children(&mut cursor) {
+        let decl = if child.kind() == "export_statement" {
+            child.child_by_field_name("declaration").unwrap_or(child)
+        } else {
+            child
+        };
+        match decl.kind() {
+            "function_declaration" | "generator_function_declaration" => {
+                if let (Some(name_node), Some(ret_node)) = (
+                    decl.child_by_field_name("name"),
+                    decl.child_by_field_name("return_type"),
+                ) {
+                    if let Some(ty) = normalize_ts_type_name(get_text(&ret_node, source)) {
+                        returns.insert(get_text(&name_node, source).trim().to_string(), ty);
+                    }
+                }
+            }
+            "lexical_declaration" | "variable_declaration" => {
+                let mut vc = decl.walk();
+                for sub in decl.named_children(&mut vc) {
+                    if sub.kind() != "variable_declarator" {
+                        continue;
+                    }
+                    let Some(name_node) = sub.child_by_field_name("name") else {
+                        continue;
+                    };
+                    if name_node.kind() != "identifier" {
+                        continue;
+                    }
+                    if let Some(val) = sub.child_by_field_name("value") {
+                        if matches!(val.kind(), "arrow_function" | "function_expression") {
+                            if let Some(ret_node) = val.child_by_field_name("return_type") {
+                                if let Some(ty) =
+                                    normalize_ts_type_name(get_text(&ret_node, source))
+                                {
+                                    returns.insert(
+                                        get_text(&name_node, source).trim().to_string(),
+                                        ty,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    returns
+}
+
+fn infer_ts_rhs_type(
+    rhs: Node,
+    source: &[u8],
+    known_types: &HashMap<String, String>,
+    file_return_types: &HashMap<String, String>,
+) -> Option<String> {
+    let expr = if rhs.kind() == "await_expression" {
+        rhs.named_child(0)?
+    } else {
+        rhs
+    };
+    match expr.kind() {
+        "identifier" => known_types.get(get_text(&expr, source).trim()).cloned(),
+        "member_expression" => known_types.get(get_text(&expr, source).trim()).cloned(),
+        "new_expression" => {
+            let ctor = expr
+                .child_by_field_name("constructor")
+                .or_else(|| expr.named_child(0))?;
+            normalize_ts_type_name(get_text(&ctor, source))
+        }
+        "call_expression" => {
+            let func = expr.child_by_field_name("function")?;
+            if func.kind() == "identifier" {
+                return file_return_types
+                    .get(get_text(&func, source).trim())
+                    .cloned();
+            }
+            None
+        }
+        "as_expression" | "satisfies_expression" => expr
+            .named_child(1)
+            .and_then(|ty| normalize_ts_type_name(get_text(&ty, source))),
+        _ => None,
+    }
+}
+
+fn collect_ts_class_field_types(
+    class_body: Node,
+    source: &[u8],
+    file_return_types: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    let mut fields = HashMap::new();
+    let mut cursor = class_body.walk();
+    for child in class_body.named_children(&mut cursor) {
+        match child.kind() {
+            "public_field_definition" | "field_definition" => {
+                let name = child
+                    .child_by_field_name("name")
+                    .map(|n| get_text(&n, source).trim().to_string())
+                    .unwrap_or_default();
+                if name.is_empty() {
+                    continue;
+                }
+                let explicit = child
+                    .child_by_field_name("type")
+                    .or_else(|| find_child_by_kind(&child, "type_annotation"))
+                    .and_then(|t| normalize_ts_type_name(get_text(&t, source)));
+                let inferred = explicit.or_else(|| {
+                    child
+                        .child_by_field_name("value")
+                        .and_then(|v| infer_ts_rhs_type(v, source, &fields, file_return_types))
+                });
+                if let Some(ty) = inferred {
+                    fields.insert(format!("this.{name}"), ty);
+                }
+            }
+            "method_definition" => {
+                let is_ctor = child
+                    .child_by_field_name("name")
+                    .is_some_and(|n| get_text(&n, source).trim() == "constructor");
+                if is_ctor {
+                    let mut ctor_types = fields.clone();
+                    collect_ts_param_types(child, source, &mut ctor_types);
+                    if let Some(body) = child.child_by_field_name("body") {
+                        collect_ts_body_var_types(body, source, &mut ctor_types, file_return_types);
+                    }
+                    for (k, v) in ctor_types {
+                        if k.starts_with("this.") {
+                            fields.insert(k, v);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    fields
+}
+
+fn collect_ts_body_var_types(
+    body: Node,
+    source: &[u8],
+    local_types: &mut HashMap<String, String>,
+    file_return_types: &HashMap<String, String>,
+) {
+    let mut cursor = body.walk();
+    let mut reached_root = false;
+    loop {
+        let n = cursor.node();
+        match n.kind() {
+            "function_declaration" | "function_expression" | "arrow_function" | "method_definition" => {
+                collect_ts_param_types(n, source, local_types);
+            }
+            "variable_declarator" => {
+                if let Some(name_node) = n.child_by_field_name("name") {
+                    if name_node.kind() == "identifier" {
+                        let key = get_text(&name_node, source).trim().to_string();
+                        let explicit = n
+                            .child_by_field_name("type")
+                            .or_else(|| find_child_by_kind(&n, "type_annotation"))
+                            .and_then(|t| normalize_ts_type_name(get_text(&t, source)));
+                        let inferred = explicit.or_else(|| {
+                            n.child_by_field_name("value").and_then(|v| {
+                                infer_ts_rhs_type(v, source, local_types, file_return_types)
+                            })
+                        });
+                        if let Some(ty) = inferred {
+                            local_types.insert(key, ty);
+                        }
+                    }
+                }
+            }
+            "assignment_expression" => {
+                if let (Some(lhs), Some(rhs)) = (
+                    n.child_by_field_name("left"),
+                    n.child_by_field_name("right"),
+                ) {
+                    let lhs_text = get_text(&lhs, source).trim();
+                    let lhs_key = if lhs.kind() == "identifier"
+                        || (lhs.kind() == "member_expression" && lhs_text.starts_with("this."))
+                    {
+                        Some(lhs_text.to_string())
+                    } else {
+                        None
+                    };
+                    if let Some(key) = lhs_key {
+                        if let Some(ty) =
+                            infer_ts_rhs_type(rhs, source, local_types, file_return_types)
+                        {
+                            local_types.insert(key, ty);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        if cursor.goto_first_child() {
+            continue;
+        }
+        if cursor.goto_next_sibling() {
+            continue;
+        }
+        loop {
+            if !cursor.goto_parent() || cursor.node() == body {
+                reached_root = true;
+                break;
+            }
+            if cursor.goto_next_sibling() {
+                break;
+            }
+        }
+        if reached_root {
+            break;
+        }
+    }
+}
+
+fn collect_ts_receiver_types_for_root(root: Node, source: &[u8]) -> HashMap<String, String> {
+    let mut ancestors = Vec::new();
+    let mut cur = root.parent();
+    while let Some(a) = cur {
+        ancestors.push(a);
+        cur = a.parent();
+    }
+    let program = ancestors.last().copied().unwrap_or(root);
+    let file_return_types = collect_ts_file_return_types(program, source);
+
+    let mut local_types = HashMap::new();
+    // Apply outer scopes before inner scopes so inner bindings win cleanly.
+    for ancestor in ancestors.into_iter().rev() {
+        match ancestor.kind() {
+            "class_body" => {
+                local_types.extend(collect_ts_class_field_types(
+                    ancestor,
+                    source,
+                    &file_return_types,
+                ));
+            }
+            "function_declaration"
+            | "generator_function_declaration"
+            | "function_expression"
+            | "arrow_function"
+            | "method_definition" => {
+                collect_ts_param_types(ancestor, source, &mut local_types);
+            }
+            _ => {}
+        }
+    }
+    collect_ts_body_var_types(root, source, &mut local_types, &file_return_types);
+    local_types
+}
+
+fn attach_ts_receiver_types(sites: &mut [CallSite], local_types: &HashMap<String, String>) {
+    for site in sites {
+        if site.receiver_type.is_none() {
+            if let Some(qualifier) = &site.qualifier {
+                if let Some(ty) = local_types.get(qualifier) {
+                    site.receiver_type = Some(ty.clone());
+                }
+            }
+        }
+    }
+}
+
 fn extract_body_references(
     root: Node,
     source: &[u8],
@@ -1376,9 +1807,11 @@ fn extract_body_references(
     skip_named_decls: bool,
     global_aliases: &HashSet<String>,
 ) {
+    let local_types = collect_ts_receiver_types_for_root(root, source);
     let blocklist: HashSet<&str> = TS_BUILTIN_CALLS.iter().copied().collect();
     if !skip_named_decls {
-        let sites = extract_call_sites(&root, source, language, &blocklist);
+        let mut sites = extract_call_sites(&root, source, language, &blocklist);
+        attach_ts_receiver_types(&mut sites, &local_types);
         edges.extend(build_call_edges(enclosing_qname, sites));
     } else {
         // For module-scope blocks/callbacks, collect call sites while skipping named declarations.
@@ -1426,6 +1859,7 @@ fn extract_body_references(
                 break;
             }
         }
+        attach_ts_receiver_types(&mut sites, &local_types);
         edges.extend(build_call_edges(enclosing_qname, sites));
     }
 
@@ -4010,6 +4444,64 @@ window.location.reload();
             e.relationship == "imports"
                 && e.target_qualified_name == "./legacy.js"
                 && e.metadata.get("reference_kind") == Some(&json!("imports_asset"))
+        }));
+    }
+
+    #[test]
+    fn extracts_ts_receiver_types_from_params_constructors_factories_and_class_fields() {
+        let parser = TypeScriptParser::new("typescript");
+        let source = r#"
+import { ApiClient } from "./api";
+
+function makeClient(): ApiClient {
+  return new ApiClient();
+}
+
+export async function loadOnce(client: ApiClient): Promise<void> {
+  await client.fetchSessions();
+}
+
+export class SessionController {
+  constructor(private readonly client: ApiClient) {}
+
+  async refresh(): Promise<void> {
+    await this.client.fetchSessions();
+    const local = makeClient();
+    await local.close();
+    const direct = new ApiClient();
+    await direct.ping();
+  }
+}
+"#;
+        let (_, edges) = parser.parse(source, "src/sessions.ts");
+
+        assert!(edges.iter().any(|e| {
+            e.relationship == "calls"
+                && e.source_qualified_name.ends_with(".loadOnce")
+                && e.target_qualified_name == "fetchSessions"
+                && e.metadata.get("qualifier") == Some(&json!("client"))
+                && e.metadata.get("receiver_type") == Some(&json!("ApiClient"))
+        }));
+        assert!(edges.iter().any(|e| {
+            e.relationship == "calls"
+                && e.source_qualified_name.ends_with(".SessionController.refresh")
+                && e.target_qualified_name == "fetchSessions"
+                && e.metadata.get("qualifier") == Some(&json!("this.client"))
+                && e.metadata.get("receiver_type") == Some(&json!("ApiClient"))
+        }));
+        assert!(edges.iter().any(|e| {
+            e.relationship == "calls"
+                && e.source_qualified_name.ends_with(".SessionController.refresh")
+                && e.target_qualified_name == "close"
+                && e.metadata.get("qualifier") == Some(&json!("local"))
+                && e.metadata.get("receiver_type") == Some(&json!("ApiClient"))
+        }));
+        assert!(edges.iter().any(|e| {
+            e.relationship == "calls"
+                && e.source_qualified_name.ends_with(".SessionController.refresh")
+                && e.target_qualified_name == "ping"
+                && e.metadata.get("qualifier") == Some(&json!("direct"))
+                && e.metadata.get("receiver_type") == Some(&json!("ApiClient"))
         }));
     }
 }

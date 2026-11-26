@@ -16,7 +16,7 @@ from scs.indexing.js_ts_imports import (
 )
 from scs.indexing.parser.base import ParsedEdge, ParsedEntity
 
-STRUCTURAL_EDGE_SCHEMA_VERSION = 2
+STRUCTURAL_EDGE_SCHEMA_VERSION = 3
 MAX_REEXPORT_DEPTH = 5
 MAX_SITES_PER_EDGE = 16
 MAX_FILE_DESCRIPTORS = 200
@@ -402,8 +402,8 @@ def _resolve_python_module_node(
         return None
     clean = specifier.lstrip(".")
     candidates: list[str] = []
+    dir_parts = [p for p in posixpath.dirname(rel_path).split("/") if p and p != "."]
     if specifier.startswith("."):
-        dir_parts = [p for p in posixpath.dirname(rel_path).split("/") if p and p != "."]
         dots = len(specifier) - len(clean)
         if dots > 1:
             up = dots - 1
@@ -412,10 +412,23 @@ def _resolve_python_module_node(
         prefix = ".".join(dir_parts)
         if clean:
             dotted = f"{prefix}.{clean}" if prefix else clean
-            candidates.extend((dotted, f"src.{dotted}"))
+            candidates.extend((dotted, f"{dotted}.__init__", f"src.{dotted}", f"src.{dotted}.__init__"))
+        elif prefix:
+            candidates.extend((f"{prefix}.__init__", prefix))
     else:
-        candidates.extend((clean, f"src.{clean}"))
+        # Walk ancestor directories (deepest to shallowest) so monorepo Python
+        # sub-packages like `apps/cortex/cortex-engine/auth/service.py` resolve
+        # local absolute imports (`from auth.service import AdminAuthService`).
+        for depth in range(len(dir_parts), 0, -1):
+            prefix = ".".join(dir_parts[:depth])
+            dotted = f"{prefix}.{clean}"
+            candidates.extend((dotted, f"{dotted}.__init__"))
+        candidates.extend((clean, f"{clean}.__init__", f"src.{clean}", f"src.{clean}.__init__"))
+    seen: set[str] = set()
     for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
         hit = resolve(candidate)
         if hit is not None:
             return hit
@@ -436,6 +449,7 @@ class _ExportResolver:
         qualified_to_id: Mapping[str, str],
         file_descriptors_by_path: Mapping[str, Mapping[str, object]],
         planned_reexports_by_file_id: Mapping[str, list[tuple[str, dict[str, object]]]],
+        resolve: Callable[[str], str | None],
     ) -> None:
         self._graph: SymbolEdgeGraph = graph
         self._repo_path: str = repo_path
@@ -449,10 +463,20 @@ class _ExportResolver:
         self._planned_reexports: Mapping[str, list[tuple[str, dict[str, object]]]] = (
             planned_reexports_by_file_id
         )
+        self._resolve: Callable[[str], str | None] = resolve
         self._file_symbols_cache: dict[str, dict[str, str]] = {}
         self._file_default_export_cache: dict[str, str | None] = {}
         self._export_lookup_cache: dict[tuple[str, str], tuple[str | None, str | None]] = {}
         self._file_edges_cache: dict[str, list[Edge]] = {}
+        self._id_to_qname: dict[str, str] = {}
+        for qname, nid in qualified_to_id.items():
+            self._id_to_qname.setdefault(nid, qname)
+        for qmap in file_qnames.values():
+            for qname, nid in qmap.items():
+                self._id_to_qname.setdefault(nid, qname)
+        self._node_qname_cache: dict[str, str | None] = {}
+        self._member_lookup_cache: dict[tuple[str, str], str | None] = {}
+        self._base_types_cache: dict[str, list[str]] = {}
 
     def file_symbols(self, file_id: str) -> dict[str, str]:
         if file_id in self._file_symbols_cache:
@@ -610,6 +634,66 @@ class _ExportResolver:
             self._export_lookup_cache[cache_key] = (None, None)
         return None, None
 
+    def _node_qname(self, node_id: str) -> str | None:
+        if node_id in self._id_to_qname:
+            return self._id_to_qname[node_id]
+        if node_id in self._node_qname_cache:
+            return self._node_qname_cache[node_id]
+        nodes = _fetch_nodes_for_ids(self._graph, [node_id])
+        qname: str | None = None
+        if nodes:
+            raw = nodes[0].metadata.get("qualified_name")
+            if isinstance(raw, str) and raw:
+                qname = raw
+        self._node_qname_cache[node_id] = qname
+        return qname
+
+    def _base_type_ids(self, type_node_id: str) -> list[str]:
+        if type_node_id in self._base_types_cache:
+            return self._base_types_cache[type_node_id]
+        edges = self._graph.get_edges_sync(type_node_id, direction="outgoing")
+        bases = [
+            edge.target_id
+            for edge in edges
+            if edge.relationship
+            in (RelationshipType.INHERITS, RelationshipType.IMPLEMENTS)
+            and edge.target_id != type_node_id
+        ]
+        self._base_types_cache[type_node_id] = bases
+        return bases
+
+    def resolve_member(
+        self,
+        type_node_id: str,
+        member_name: str,
+        visited: frozenset[str] = frozenset(),
+        depth: int = 0,
+    ) -> str | None:
+        """Resolve a method or member declared on a class/interface or its bases."""
+
+        if not type_node_id or not member_name or type_node_id in visited or depth > 3:
+            return None
+        cache_key = (type_node_id, member_name)
+        if depth == 0 and cache_key in self._member_lookup_cache:
+            return self._member_lookup_cache[cache_key]
+
+        hit: str | None = None
+        type_qname = self._node_qname(type_node_id)
+        if type_qname:
+            member_qname = f"{type_qname}.{member_name}"
+            hit = self._qualified_to_id.get(member_qname) or self._resolve(member_qname)
+
+        if hit is None and depth < 3:
+            next_visited = visited | {type_node_id}
+            for base_id in self._base_type_ids(type_node_id):
+                hit = self.resolve_member(base_id, member_name, next_visited, depth + 1)
+                if hit is not None:
+                    break
+
+        if depth == 0:
+            self._member_lookup_cache[cache_key] = hit
+        return hit
+
 
 def _record_merged_edge(
     merged_edges: dict[tuple[str, str, str], dict[str, object]],
@@ -675,14 +759,23 @@ def resolve_structural_edges(
                 edge.relationship is RelationshipType.IMPORTS
                 and edge.metadata.get("is_reexport") is True
             ):
-                target_fid = resolve_js_ts_target(
-                    item.entry.rel_path,
-                    edge.target_qualified_name,
-                    resolve,
-                    file_nodes_by_path=file_nodes_by_path,
-                    lower_file_nodes_by_path=lower_file_nodes_by_path,
-                    alias_configs=alias_configs,
-                )
+                if item.entry.language == "python":
+                    raw_mod = edge.metadata.get("reexport_from_module") or edge.metadata.get(
+                        "from_module"
+                    )
+                    spec = raw_mod if isinstance(raw_mod, str) and raw_mod else edge.target_qualified_name
+                    target_fid = _resolve_python_module_node(
+                        item.entry.rel_path, spec, resolve
+                    )
+                else:
+                    target_fid = resolve_js_ts_target(
+                        item.entry.rel_path,
+                        edge.target_qualified_name,
+                        resolve,
+                        file_nodes_by_path=file_nodes_by_path,
+                        lower_file_nodes_by_path=lower_file_nodes_by_path,
+                        alias_configs=alias_configs,
+                    )
                 if target_fid is not None and target_fid != src_fid:
                     planned_reexports_by_file_id.setdefault(src_fid, []).append(
                         (target_fid, dict(edge.metadata))
@@ -697,6 +790,7 @@ def resolve_structural_edges(
         qualified_to_id=qualified_to_id,
         file_descriptors_by_path=file_descriptors_by_path,
         planned_reexports_by_file_id=planned_reexports_by_file_id,
+        resolve=resolve,
     )
     merged_edges: dict[tuple[str, str, str], dict[str, object]] = {}
 
@@ -789,14 +883,16 @@ def resolve_structural_edges(
                 )
 
             # For Python `from mod import sym as alias`, track local binding to
-            # target symbol directly (or via its module file) without adding extra IMPORTS.
+            # target symbol directly (or via its module / __init__.py barrel).
             if item.entry.language == "python" and edge.metadata:
                 raw_bindings = edge.metadata.get("import_bindings")
                 py_target_file: str | None = (
                     target if target in file_id_to_path else None
                 )
                 if py_target_file is None:
-                    from_mod = edge.metadata.get("from_module")
+                    from_mod = edge.metadata.get("reexport_from_module") or edge.metadata.get(
+                        "from_module"
+                    )
                     if isinstance(from_mod, str) and from_mod:
                         mod_node = _resolve_python_module_node(
                             rel_path, from_mod, resolve
@@ -820,11 +916,38 @@ def resolve_structural_edges(
                         ):
                             local_bindings.setdefault(local_name, target)
                         elif py_target_file is not None and isinstance(imported_name, str):
-                            sym_id, _ = export_resolver.resolve_exported_symbol(
+                            sym_id, via_barrel = export_resolver.resolve_exported_symbol(
                                 py_target_file, imported_name
                             )
                             if sym_id is not None:
                                 local_bindings.setdefault(local_name, sym_id)
+                                if (
+                                    source_file_id is not None
+                                    and target is None
+                                    and edge.metadata.get("is_reexport") is not True
+                                ):
+                                    py_ref_meta: dict[str, object] = {
+                                        "reference_kind": "imports_named",
+                                        "enclosing_symbol": edge.metadata.get(
+                                            "enclosing_symbol", file_qname or rel_path
+                                        ),
+                                    }
+                                    if type(edge.metadata.get("start_line")) is int:
+                                        py_ref_meta["start_line"] = edge.metadata["start_line"]
+                                    if type(edge.metadata.get("end_line")) is int:
+                                        py_ref_meta["end_line"] = edge.metadata.get(
+                                            "end_line", edge.metadata["start_line"]
+                                        )
+                                    if via_barrel:
+                                        py_ref_meta["via_barrel"] = via_barrel
+                                    _record_merged_edge(
+                                        merged_edges,
+                                        source_file_id,
+                                        sym_id,
+                                        RelationshipType.REFERENCES.value,
+                                        1.0,
+                                        py_ref_meta,
+                                    )
 
             if target is None:
                 continue
@@ -909,6 +1032,37 @@ def resolve_structural_edges(
                     target = local_qnames.get(f"{class_scope}.{target_name}") or resolve(
                         f"{class_scope}.{target_name}"
                     )
+                if target is None:
+                    receiver_candidates: list[str] = []
+                    raw_rt = edge.metadata.get("receiver_type")
+                    if isinstance(raw_rt, str) and raw_rt:
+                        receiver_candidates.append(raw_rt)
+                    raw_rts = edge.metadata.get("receiver_types")
+                    if isinstance(raw_rts, list):
+                        for rt_item in cast(list[object], raw_rts):
+                            if isinstance(rt_item, str) and rt_item and rt_item not in receiver_candidates:
+                                receiver_candidates.append(rt_item)
+                    for rtype in receiver_candidates:
+                        type_id: str | None = None
+                        if "." in rtype:
+                            mod_alias, cls_name = rtype.rsplit(".", 1)
+                            if mod_alias in namespace_imports:
+                                type_id, _ = export_resolver.resolve_exported_symbol(
+                                    namespace_imports[mod_alias], cls_name
+                                )
+                            if type_id is None:
+                                type_id = local_bindings.get(cls_name) or resolve(rtype)
+                        else:
+                            type_id = (
+                                local_bindings.get(rtype)
+                                or (local_qnames.get(f"{file_qname}.{rtype}") if file_qname else None)
+                                or resolve(rtype)
+                            )
+                        if type_id is not None:
+                            member_id = export_resolver.resolve_member(type_id, target_name)
+                            if member_id is not None:
+                                target = member_id
+                                break
                 if target is None:
                     target = local_bindings.get(target_name)
 

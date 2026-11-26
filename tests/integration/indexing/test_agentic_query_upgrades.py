@@ -937,3 +937,177 @@ async def test_legacy_parser_version_upgrades_automatically_via_ingest_and_refre
             s.get("name") == "insideIife"
             for s in cast(list[dict[str, object]], refreshed["evidence"]["symbols"])
         )
+
+
+@pytest.mark.asyncio
+async def test_monorepo_python_and_ts_receiver_types_and_multi_rel_traversal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    py_root = repo / "apps" / "cortex" / "cortex-engine"
+    (py_root / "auth").mkdir(parents=True)
+    (py_root / "tests").mkdir(parents=True)
+    ts_root = repo / "apps" / "cortex" / "webview" / "src"
+    (ts_root / "lib").mkdir(parents=True)
+    (ts_root / "backend").mkdir(parents=True)
+
+    (py_root / "auth" / "service.py").write_text(
+        "class AdminAuthService:\n"
+        "    def set_session_observer(self, observer: object) -> None:\n"
+        "        self._observer = observer\n\n"
+        "    async def list_active_sessions(self) -> list[dict[str, str]]:\n"
+        "        return []\n",
+        encoding="utf-8",
+    )
+    (py_root / "auth" / "__init__.py").write_text(
+        "from .service import AdminAuthService\n",
+        encoding="utf-8",
+    )
+    (py_root / "session_inventory.py").write_text(
+        "from auth.service import AdminAuthService\n\n"
+        "class SessionInventory:\n"
+        "    def page(self, rows: list[dict[str, str]]) -> dict[str, object]:\n"
+        "        return {'sessions': rows}\n\n"
+        "def register_session_inventory_handlers(\n"
+        "    router: object, auth: AdminAuthService, inventory: SessionInventory\n"
+        ") -> None:\n"
+        "    async def sessions_list() -> dict[str, object]:\n"
+        "        logins = await auth.list_active_sessions()\n"
+        "        return inventory.page(logins)\n",
+        encoding="utf-8",
+    )
+    (py_root / "web_app.py").write_text(
+        "from auth import AdminAuthService\n"
+        "from session_inventory import SessionInventory\n\n"
+        "def create_web_app(auth: AdminAuthService) -> None:\n"
+        "    inventory = SessionInventory()\n"
+        "    auth.set_session_observer(inventory)\n",
+        encoding="utf-8",
+    )
+    (py_root / "tests" / "test_admin_auth.py").write_text(
+        "from auth.service import AdminAuthService\n"
+        "from session_inventory import SessionInventory\n\n"
+        "def _auth_service() -> AdminAuthService:\n"
+        "    return AdminAuthService()\n\n"
+        "async def test_login_observation() -> None:\n"
+        "    service = _auth_service()\n"
+        "    inventory = SessionInventory()\n"
+        "    service.set_session_observer(inventory)\n"
+        "    inventory.page(await service.list_active_sessions())\n",
+        encoding="utf-8",
+    )
+
+    # TypeScript multi-relationship graph (`calls` + `references` from same caller)
+    # plus typed receiver method calls.
+    (ts_root / "backend" / "typeferry-client.ts").write_text(
+        "export class CortexApiError extends Error {\n"
+        "  readonly code: string;\n"
+        "  constructor(code: string) { super(code); this.code = code; }\n"
+        "}\n\n"
+        "export class BridgeCallClient {\n"
+        "  async call(method: string): Promise<string> { return method; }\n"
+        "}\n\n"
+        "export function responseError(code: string): CortexApiError {\n"
+        "  return new CortexApiError(code);\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    (ts_root / "lib" / "sessions-wire.ts").write_text(
+        "import { BridgeCallClient, CortexApiError } from '../backend/typeferry-client';\n\n"
+        "async function loadOnce(client: BridgeCallClient): Promise<string> {\n"
+        "  return client.call('sessions.list');\n"
+        "}\n\n"
+        "export async function loadSessions(client: BridgeCallClient): Promise<string> {\n"
+        "  try {\n"
+        "    return await loadOnce(client);\n"
+        "  } catch (err) {\n"
+        "    if (err instanceof CortexApiError) return loadOnce(client);\n"
+        "    throw err;\n"
+        "  }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    (ts_root / "lib" / "sessions-wire.test.ts").write_text(
+        "import { BridgeCallClient } from '../backend/typeferry-client';\n"
+        "import { loadSessions } from './sessions-wire';\n\n"
+        "export async function runTest() {\n"
+        "  const client = new BridgeCallClient();\n"
+        "  return loadSessions(client);\n"
+        "}\n"
+        "loadSessions(new BridgeCallClient());\n",
+        encoding="utf-8",
+    )
+
+    async with _running_indexed_daemon(tmp_path / "d", repo, monkeypatch) as (_daemon, client):
+        # 1. Python REFERENCES for list_active_sessions and set_session_observer
+        list_refs = await client.call(
+            "knowledge.query",
+            {
+                "goal": "References to list_active_sessions",
+                "repo_path": str(repo),
+                "symbol_name": "list_active_sessions",
+                "playbook": "REFERENCES",
+                "limit": 20,
+            },
+        )
+        list_ref_files = {
+            str(r.get("file_path"))
+            for r in cast(list[dict[str, object]], list_refs["evidence"]["references"])
+        }
+        assert "apps/cortex/cortex-engine/session_inventory.py" in list_ref_files
+        assert "apps/cortex/cortex-engine/tests/test_admin_auth.py" in list_ref_files
+        assert any(
+            t.get("file_path") == "apps/cortex/cortex-engine/tests/test_admin_auth.py"
+            for t in cast(list[dict[str, object]], list_refs["evidence"]["test_targets"])
+        )
+
+        obs_refs = await client.call(
+            "knowledge.query",
+            {
+                "goal": "References to set_session_observer",
+                "repo_path": str(repo),
+                "symbol_name": "set_session_observer",
+                "playbook": "REFERENCES",
+                "limit": 20,
+            },
+        )
+        obs_ref_files = {
+            str(r.get("file_path"))
+            for r in cast(list[dict[str, object]], obs_refs["evidence"]["references"])
+        }
+        assert "apps/cortex/cortex-engine/web_app.py" in obs_ref_files
+        assert "apps/cortex/cortex-engine/tests/test_admin_auth.py" in obs_ref_files
+
+        # 2. TypeScript typed receiver call resolution (`client: BridgeCallClient` -> `client.call`)
+        ts_call_refs = await client.call(
+            "knowledge.query",
+            {
+                "goal": "References to BridgeCallClient.call",
+                "repo_path": str(repo),
+                "symbol_name": "call",
+                "file_paths": ["apps/cortex/webview/src/backend/typeferry-client.ts"],
+                "playbook": "REFERENCES",
+                "limit": 20,
+            },
+        )
+        ts_call_files = {
+            str(r.get("file_path"))
+            for r in cast(list[dict[str, object]], ts_call_refs["evidence"]["references"])
+        }
+        assert "apps/cortex/webview/src/lib/sessions-wire.ts" in ts_call_files
+
+        # 3. UNDERSTAND and RELATIONSHIPS succeed even when callers have BOTH calls + references
+        for sym in ("loadSessions", "loadOnce", "CortexApiError"):
+            for playbook in ("UNDERSTAND", "RELATIONSHIPS"):
+                res = await client.call(
+                    "knowledge.query",
+                    {
+                        "goal": f"{playbook} {sym}",
+                        "repo_path": str(repo),
+                        "symbol_name": sym,
+                        "playbook": playbook,
+                        "limit": 20,
+                    },
+                )
+                assert res["degraded_stages"] == [], f"{playbook}({sym}) degraded: {res['trace']}"
+                assert res["evidence"]["relationships"], f"{playbook}({sym}) had no relationships"

@@ -239,3 +239,49 @@ async def test_search_reports_nonnegative_stage_timings() -> None:
     assert response.timings.vector_ms >= 0
     assert response.timings.rerank_ms >= 0
     assert response.timings.total_ms >= 0
+
+
+@pytest.mark.asyncio
+async def test_search_caps_rerank_candidates_for_thorough_and_balanced_modes() -> None:
+    class LargeGraph:
+        def search_by_name_sync(self, query, *, node_type, limit, repo_id):
+            del query, node_type, repo_id
+            return [node(f"lex_{i}") for i in range(limit)]
+
+        def search_by_vector_sync(self, vector, *, node_type, limit, repo_id):
+            del vector, node_type, repo_id
+            return [
+                SearchResult(node=node(f"sem_{i}"), distance=0.01 * i)
+                for i in range(limit)
+            ]
+
+    class CapturingReranker:
+        metadata = RerankerMetadata("fake", "capturing")
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[int, int]] = []
+
+        async def rerank(
+            self, query: str, documents: Sequence[str], *, limit: int
+        ) -> list[RankedDocument]:
+            del query
+            self.calls.append((len(documents), limit))
+            return [
+                RankedDocument(index=i, score=1.0 - (i * 0.001))
+                for i in range(min(limit, len(documents)))
+            ]
+
+    reranker = CapturingReranker()
+    service = CodeSearchService(LargeGraph(), Provider(), reranker)
+
+    thorough = await service.search("run", limit=20, search_mode="thorough")
+    assert thorough.retrieval_mode == "hybrid_reranked"
+    assert thorough.degraded_stage is None
+    assert len(thorough.matches) == 20
+    assert reranker.calls[-1] == (64, 20)
+
+    balanced = await service.search("run", limit=10, search_mode="balanced")
+    assert balanced.retrieval_mode == "hybrid_reranked"
+    assert balanced.degraded_stage is None
+    assert len(balanced.matches) == 10
+    assert reranker.calls[-1] == (24, 10)

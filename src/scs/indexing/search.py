@@ -17,6 +17,8 @@ from scs.providers.base import (
 MAX_SEARCH_RESULTS: Final[int] = 200
 MINIMUM_CANDIDATE_COUNT: Final[int] = 20
 CANDIDATE_MULTIPLIER: Final[int] = 4
+MAX_RERANK_CANDIDATES: Final[int] = 64
+BALANCED_RERANK_CANDIDATES: Final[int] = 24
 RECIPROCAL_RANK_CONSTANT: Final[int] = 60
 MAX_RERANK_DOCUMENT_CHARS: Final[int] = 4_096
 MAX_SEARCH_QUERIES: Final[int] = 5
@@ -214,6 +216,14 @@ class CodeSearchService:
                 started=started,
             )
 
+        rerank_pool_limit = (
+            min(MAX_RERANK_CANDIDATES, max(result_limit, BALANCED_RERANK_CANDIDATES))
+            if search_mode == "balanced"
+            else min(MAX_RERANK_CANDIDATES, len(fused))
+        )
+        rerank_candidates = fused[:rerank_pool_limit]
+        rerank_limit = min(result_limit, len(rerank_candidates))
+
         rerank_started = perf_counter()
         try:
             timeout_seconds = (
@@ -224,8 +234,8 @@ class CodeSearchService:
             async with asyncio.timeout(timeout_seconds):
                 ranked = await reranker.rerank(
                     "\n".join(effective_queries),
-                    [self._rerank_document(match.node) for match in fused],
-                    limit=result_limit,
+                    [self._rerank_document(match.node) for match in rerank_candidates],
+                    limit=rerank_limit,
                 )
         except TimeoutError:
             return self._response(
@@ -259,14 +269,16 @@ class CodeSearchService:
 
         reranked = [
             CodeSearchMatch(
-                node=fused[result.index].node,
-                fusion_score=fused[result.index].fusion_score,
-                semantic_distance=fused[result.index].semantic_distance,
+                node=rerank_candidates[result.index].node,
+                fusion_score=rerank_candidates[result.index].fusion_score,
+                semantic_distance=rerank_candidates[result.index].semantic_distance,
                 rerank_score=result.score,
-                matched_query_indexes=fused[result.index].matched_query_indexes,
+                matched_query_indexes=rerank_candidates[result.index].matched_query_indexes,
             )
             for result in ranked
         ]
+        if len(reranked) < result_limit and len(fused) > len(rerank_candidates):
+            reranked.extend(fused[len(rerank_candidates) : result_limit])
         reranked_modes: dict[RetrievalMode, RetrievalMode] = {
             "hybrid": "hybrid_reranked",
             "semantic": "semantic_reranked",

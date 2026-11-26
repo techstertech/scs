@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use usearch::ffi::{IndexOptions, MetricKind, ScalarKind};
 
 use crate::error::{Error, Result};
@@ -150,30 +150,37 @@ impl VectorAccelerator {
         limit: usize,
         filter: SearchFilter<'_>,
     ) -> Result<Vec<SearchHit>> {
-        let candidates = load_candidate_nodes(connection, filter)?;
-        if candidates.is_empty() || limit == 0 {
+        if limit == 0 || self.index.size() == 0 {
             return Ok(Vec::new());
         }
 
-        // Searching the full eligible corpus guarantees correct post-filtering.
-        // A future backend can push the allowlist into the ANN implementation.
-        let search_limit = if filter == SearchFilter::default() {
-            limit.min(candidates.len())
-        } else {
-            self.index.size()
-        };
-        let result = self
-            .index
-            .search(query, search_limit)
-            .map_err(|error| Error::Storage(format!("search USearch index: {error}")))?;
+        // Single-scope stores (the common case for per-project SCS indices)
+        // need no filter predicate when `kind` is unconstrained.
+        let unfiltered = filter == SearchFilter::default()
+            || (filter.kind.is_none()
+                && filter.scope_id.is_some()
+                && !has_nodes_outside_scope(connection, filter.scope_id)?);
 
-        let mut hits = Vec::with_capacity(limit);
+        let result = if unfiltered {
+            let search_limit = limit.min(self.index.size());
+            self.index
+                .search(query, search_limit)
+                .map_err(|error| Error::Storage(format!("search USearch index: {error}")))?
+        } else {
+            let eligible = load_candidate_keys(connection, filter)?;
+            if eligible.is_empty() {
+                return Ok(Vec::new());
+            }
+            let search_limit = limit.min(eligible.len());
+            self.index
+                .filtered_search(query, search_limit, |key| eligible.contains(&key))
+                .map_err(|error| Error::Storage(format!("search USearch index: {error}")))?
+        };
+
+        let mut hits = Vec::with_capacity(limit.min(result.keys.len()));
         for (key, distance) in result.keys.into_iter().zip(result.distances) {
-            if let Some(node) = candidates.get(&key) {
-                hits.push(SearchHit {
-                    node: node.clone(),
-                    distance,
-                });
+            if let Some(node) = load_node_by_key(connection, key)? {
+                hits.push(SearchHit { node, distance });
                 if hits.len() == limit {
                     break;
                 }
@@ -281,6 +288,61 @@ fn load_vectors(
         }
     }
     Ok(vectors)
+}
+
+fn has_nodes_outside_scope(connection: &Connection, scope_id: Option<i64>) -> Result<bool> {
+    Ok(connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM nodes WHERE scope_id IS NOT ?1)",
+        [scope_id],
+        |row| row.get(0),
+    )?)
+}
+
+fn load_candidate_keys(connection: &Connection, filter: SearchFilter<'_>) -> Result<HashSet<u64>> {
+    let mut statement = connection.prepare(
+        "SELECT key
+         FROM nodes
+         WHERE (?1 IS NULL OR scope_id = ?1)
+           AND (?2 IS NULL OR kind = ?2)",
+    )?;
+    let rows = statement.query_map((filter.scope_id, filter.kind), |row| row.get::<_, i64>(0))?;
+    let mut keys = HashSet::new();
+    for row in rows {
+        let signed_key = row?;
+        let key = u64::try_from(signed_key)
+            .map_err(|_| Error::Storage("stored node key is negative".to_string()))?;
+        keys.insert(key);
+    }
+    Ok(keys)
+}
+
+fn load_node_by_key(connection: &Connection, key: u64) -> Result<Option<Node>> {
+    let signed_key = i64::try_from(key)
+        .map_err(|_| Error::Storage("vector key exceeds SQLite integer range".to_string()))?;
+    Ok(connection
+        .query_row(
+            "SELECT id, scope_id, kind, name, content, attributes FROM nodes WHERE key = ?1",
+            [signed_key],
+            |row| {
+                Ok(Node {
+                    id: row.get(0)?,
+                    scope_id: row.get(1)?,
+                    kind: row.get(2)?,
+                    name: row.get(3)?,
+                    content: row.get(4)?,
+                    attributes: serde_json::from_str(&row.get::<_, String>(5)?).map_err(
+                        |error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                5,
+                                rusqlite::types::Type::Text,
+                                Box::new(error),
+                            )
+                        },
+                    )?,
+                })
+            },
+        )
+        .optional()?)
 }
 
 fn load_candidate_nodes(

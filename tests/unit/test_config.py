@@ -337,7 +337,7 @@ def test_decision_endpoint_rejects_invalid_urls(endpoint: str) -> None:
 
 
 def test_decision_timeout_defaults_and_bounds() -> None:
-    assert SCSSettings().decision_timeout_seconds == 1.5
+    assert SCSSettings().decision_timeout_seconds == 2.0
     assert SCSSettings(decision_timeout_seconds=3.0).decision_timeout_seconds == 3.0
     with pytest.raises(ValueError):
         SCSSettings(decision_timeout_seconds=5.5)

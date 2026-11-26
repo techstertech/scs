@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from ipaddress import ip_address
+import json
 from math import isfinite
 from typing import Final, cast
 from urllib.parse import urlsplit
@@ -18,6 +19,7 @@ from scs.providers.base import (
 
 RERANK_PATH: Final[str] = "rerank"
 REQUEST_TIMEOUT_SECONDS: Final[float] = 30.0
+MAX_HTTP_ERROR_DETAIL_BYTES: Final[int] = 1_024
 RerankerRequest = Callable[[dict[str, object]], Awaitable[object]]
 
 
@@ -101,8 +103,41 @@ class OpenAICompatibleRerankingProvider:
         timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_SECONDS)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(self.endpoint, json=payload) as response:
-                response.raise_for_status()
+                if response.status >= 400:
+                    detail_bytes = await response.content.read(
+                        MAX_HTTP_ERROR_DETAIL_BYTES + 1
+                    )
+                    detail = detail_bytes[:MAX_HTTP_ERROR_DETAIL_BYTES].decode(
+                        errors="replace"
+                    )
+                    if len(detail_bytes) > MAX_HTTP_ERROR_DETAIL_BYTES:
+                        detail = f"{detail}…"
+                    reason = response.reason or f"HTTP {response.status}"
+                    message = self._http_error_message(detail, reason)
+                    raise aiohttp.ClientResponseError(
+                        response.request_info,
+                        response.history,
+                        status=response.status,
+                        message=message,
+                        headers=response.headers,
+                    )
                 return cast(object, await response.json(content_type=None))
+
+    @staticmethod
+    def _http_error_message(detail: str, reason: str) -> str:
+        """Prefer a bounded structured API detail over the generic HTTP reason."""
+
+        stripped_detail = detail.strip()
+        try:
+            body = cast(object, json.loads(stripped_detail))
+        except (json.JSONDecodeError, TypeError):
+            return stripped_detail or reason
+
+        if isinstance(body, Mapping):
+            structured_detail = cast(Mapping[str, object], body).get("detail")
+            if isinstance(structured_detail, str) and structured_detail:
+                return structured_detail
+        return stripped_detail or reason
 
     @staticmethod
     def _parse_results(

@@ -11,10 +11,12 @@ from urllib.parse import unquote, urlsplit
 
 from scs.source_paths import validated_source_path
 
-MAX_DOCUMENT_BYTES = 65_536
+MAX_DOCUMENT_BYTES = 262_144
 MAX_SOURCE_SCAN_BYTES = 524_288
 MAX_SCAN_BYTES = 2_097_152
 MAX_SCAN_FILES = 128
+MAX_CATALOG_SCAN_BYTES = 16_777_216
+MAX_CATALOG_SCAN_FILES = 2_048
 MAX_CONTENT_CHARACTERS = 2_048
 ACTIVE_STATUSES = frozenset({"active", "accepted", "approved", "implementing", "validating", "shipped"})
 LINK = re.compile(r"\[[^\]]*\]\(([^\s)]+)(?:\s+[^)]*)?\)")
@@ -110,7 +112,7 @@ def collect_contracts(
         path: [{"kind": "caller_selected", "file_path": path}] for path in explicit
     }
 
-    def links(owner: str, text: str) -> list[tuple[str, int]]:
+    def links(owner: str, text: str, *, report_unsafe: bool = True) -> list[tuple[str, int]]:
         found: list[tuple[str, int]] = []
         for match in LINK.finditer(text):
             try:
@@ -118,7 +120,8 @@ def collect_contracts(
                 if target:
                     found.append((target, text.count("\n", 0, match.start())))
             except ValueError:
-                gaps.append({"file_path": owner, "reason": "unsafe_path"})
+                if report_unsafe:
+                    gaps.append({"file_path": owner, "reason": "unsafe_path"})
         return found
 
     for source in sources:
@@ -134,6 +137,18 @@ def collect_contracts(
         read(path)
 
     # Existing records can link to code without requiring new annotations.
+    # Prefilter by source basename bytes so large spec/decision catalogs stay
+    # fast, and ignore out-of-repo cross-links during unrelated backlink scans
+    # while still enforcing strict containment on the catalog files themselves.
+    source_basename_bytes = tuple(
+        dict.fromkeys(
+            Path(source).name.encode("utf-8")
+            for source in sources
+            if Path(source).name
+        )
+    )
+    catalog_scanned_files = 0
+    catalog_scanned_bytes = 0
     for directory in (("specs", "decisions") if sources else ()):
         folder = root / directory
         try:
@@ -141,17 +156,56 @@ def collect_contracts(
         except ValueError:
             gaps.append({"file_path": directory, "reason": "unsafe_path"})
             continue
-        for document in islice(folder.glob("*.md"), MAX_SCAN_FILES + 1):
-            if len(cache) >= MAX_SCAN_FILES or consumed >= MAX_SCAN_BYTES:
+        if not folder.is_dir():
+            continue
+        for document in islice(sorted(folder.glob("*.md")), MAX_CATALOG_SCAN_FILES + 1):
+            if (
+                catalog_scanned_files >= MAX_CATALOG_SCAN_FILES
+                or catalog_scanned_bytes >= MAX_CATALOG_SCAN_BYTES
+            ):
                 truncated = True
                 break
             relative = document.relative_to(root).as_posix()
-            text = read(relative)
-            if text is None:
+            if relative in cache:
+                text = cache[relative]
+                if text is not None:
+                    for target, line in links(relative, text, report_unsafe=False):
+                        if target in sources:
+                            selected.setdefault(relative, []).append(
+                                {"kind": "document_link", "file_path": relative, "target": target, "line": line}
+                            )
                 continue
-            for target, line in links(relative, text):
+            catalog_scanned_files += 1
+            try:
+                safe = Path(validated_source_path(relative, str(root), require_file=False))
+                if not safe.is_file():
+                    raise OSError("not a regular file")
+                with safe.open("rb") as stream:
+                    data = stream.read(MAX_DOCUMENT_BYTES + 1)
+                catalog_scanned_bytes += len(data)
+                if len(data) > MAX_DOCUMENT_BYTES:
+                    gaps.append({"file_path": relative, "reason": "oversized"})
+                    cache[relative] = None
+                    continue
+                if source_basename_bytes and not any(
+                    marker in data for marker in source_basename_bytes
+                ):
+                    continue
+                text = data.decode("utf-8")
+            except ValueError:
+                gaps.append({"file_path": relative, "reason": "unsafe_path"})
+                cache[relative] = None
+                continue
+            except (OSError, UnicodeError):
+                gaps.append({"file_path": relative, "reason": "unreadable"})
+                cache[relative] = None
+                continue
+            for target, line in links(relative, text, report_unsafe=False):
                 if target in sources:
-                    selected.setdefault(relative, []).append({"kind": "document_link", "file_path": relative, "target": target, "line": line})
+                    cache[relative] = text
+                    selected.setdefault(relative, []).append(
+                        {"kind": "document_link", "file_path": relative, "target": target, "line": line}
+                    )
 
     contracts: list[dict[str, object]] = []
     pending = sorted(selected)

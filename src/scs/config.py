@@ -117,7 +117,7 @@ class SCSSettings(BaseSettings):
     decision_provider: Literal["external", "local", "disabled"] = "external"
     decision_base_url: str = DEFAULT_DECISION_BASE_URL
     decision_trusted_hosts: list[str] = Field(default_factory=list)
-    decision_timeout_seconds: float = Field(default=1.5, gt=0, le=5.0)
+    decision_timeout_seconds: float = Field(default=2.0, gt=0, le=5.0)
     decision_max_concurrency: int = Field(default=1, ge=1, le=4)
     index_text_fallback: bool = True
     index_max_file_bytes: int = Field(default=1_048_576, ge=1)

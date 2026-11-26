@@ -156,3 +156,120 @@ fn name_search_treats_backslashes_and_wildcards_literally() {
         );
     }
 }
+
+#[test]
+fn usearch_search_honors_single_scope_multi_scope_and_kind_filters() {
+    let directory = TempDir::new().unwrap();
+    let mut store = Store::open(directory.path().join("graph.db"), DIMENSIONS, 0).unwrap();
+    let scope_a = store.get_or_create_scope("repo-a").unwrap();
+    let scope_b = store.get_or_create_scope("repo-b").unwrap();
+
+    let mut nodes = Vec::new();
+    let mut embeddings = Vec::new();
+    for (id, scope_id, kind, vector) in [
+        ("a-fn", Some(scope_a.id), "function", vec![1.0_f32, 0.0]),
+        ("a-cls", Some(scope_a.id), "class", vec![0.99_f32, 0.1]),
+        ("a-far", Some(scope_a.id), "function", vec![0.0_f32, 1.0]),
+    ] {
+        nodes.push(Node {
+            id: id.to_string(),
+            scope_id,
+            kind: kind.to_string(),
+            name: id.to_string(),
+            content: String::new(),
+            attributes: serde_json::json!({}),
+        });
+        embeddings.push(Embedding {
+            node_id: id.to_string(),
+            vector,
+        });
+    }
+    store
+        .apply_batch(&WriteBatch {
+            nodes,
+            embeddings,
+            ..WriteBatch::default()
+        })
+        .unwrap();
+
+    // Single-scope fast path (no nodes outside scope_a, kind is None).
+    let single_scope = store
+        .search(
+            &[1.0, 0.0],
+            2,
+            SearchFilter {
+                scope_id: Some(scope_a.id),
+                kind: None,
+            },
+            SearchBackend::Usearch,
+        )
+        .unwrap();
+    assert_eq!(
+        single_scope
+            .hits
+            .iter()
+            .map(|h| h.node.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["a-fn", "a-cls"]
+    );
+
+    // Kind-filtered search uses key-only filtered_search.
+    let kind_filtered = store
+        .search(
+            &[1.0, 0.0],
+            2,
+            SearchFilter {
+                scope_id: Some(scope_a.id),
+                kind: Some("function"),
+            },
+            SearchBackend::Usearch,
+        )
+        .unwrap();
+    assert_eq!(
+        kind_filtered
+            .hits
+            .iter()
+            .map(|h| h.node.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["a-fn", "a-far"]
+    );
+
+    // Add a second scope with an identical query vector to verify multi-scope isolation.
+    store
+        .apply_batch(&WriteBatch {
+            nodes: vec![Node {
+                id: "b-fn".to_string(),
+                scope_id: Some(scope_b.id),
+                kind: "function".to_string(),
+                name: "b-fn".to_string(),
+                content: String::new(),
+                attributes: serde_json::json!({}),
+            }],
+            embeddings: vec![Embedding {
+                node_id: "b-fn".to_string(),
+                vector: vec![1.0, 0.0],
+            }],
+            ..WriteBatch::default()
+        })
+        .unwrap();
+
+    let scope_b_hits = store
+        .search(
+            &[1.0, 0.0],
+            2,
+            SearchFilter {
+                scope_id: Some(scope_b.id),
+                kind: None,
+            },
+            SearchBackend::Usearch,
+        )
+        .unwrap();
+    assert_eq!(
+        scope_b_hits
+            .hits
+            .iter()
+            .map(|h| h.node.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["b-fn"]
+    );
+}

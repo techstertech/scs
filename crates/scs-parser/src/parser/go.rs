@@ -662,6 +662,7 @@ fn go_calls(node: Node, source: &[u8], package_qualified: &str) -> Vec<CallSite>
                         calls.push(CallSite {
                             name: target,
                             qualifier: None,
+                            receiver_type: None,
                             start_line: node.start_position().row,
                             end_line: node.end_position().row,
                         });

@@ -990,6 +990,7 @@ fn java_calls(
                         calls.push(CallSite {
                             name: target,
                             qualifier: None,
+                            receiver_type: None,
                             start_line: node.start_position().row,
                             end_line: node.end_position().row,
                         });
@@ -1004,6 +1005,7 @@ fn java_calls(
                             calls.push(CallSite {
                                 name: resolved,
                                 qualifier: None,
+                                receiver_type: None,
                                 start_line: node.start_position().row,
                                 end_line: node.end_position().row,
                             });
