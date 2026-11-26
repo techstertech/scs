@@ -18,6 +18,7 @@ from scs.main import serve
 from scs.mcp.stdio import serve_stdio
 from scs.storage.snapshot import list_saved_projects
 from scs.uninstall import UninstallError, uninstall
+from scs.upgrade import UpgradeError, upgrade
 from scs.wire.client import SCSConnection
 
 
@@ -33,6 +34,25 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands.add_parser("doctor", help="validate storage and daemon health")
     subcommands.add_parser("status", help="show daemon state")
     subcommands.add_parser("version", help="show the installed SCS version")
+
+    upgrading = subcommands.add_parser(
+        "upgrade", help="upgrade SCS from verified GitHub Releases"
+    )
+    upgrading.add_argument(
+        "--version",
+        default=None,
+        help="install or roll back to a specific release version (for example, 0.8.0)",
+    )
+    upgrading.add_argument(
+        "--check",
+        action="store_true",
+        help="check for a newer release without installing",
+    )
+    upgrading.add_argument(
+        "--force",
+        action="store_true",
+        help="reinstall even when the target version is already installed",
+    )
 
     removal = subcommands.add_parser(
         "uninstall", help="stop SCS and remove its uv installation"
@@ -143,6 +163,46 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if command == "version":
         print(__version__)
+        return 0
+    if command == "upgrade":
+        raw_version = values.get("version")
+        target_version = raw_version if isinstance(raw_version, str) else None
+        check_only = values.get("check") is True
+        force = values.get("force") is True
+        try:
+            result = upgrade(
+                SCSSettings(),
+                version=target_version,
+                check_only=check_only,
+                force=force,
+            )
+        except (UpgradeError, OSError, ValueError) as error:
+            print(f"SCS upgrade failed: {error}", file=sys.stderr)
+            return 1
+        if result.checked_only:
+            if result.target_version == result.current_version:
+                print(f"SCS {result.current_version} is up to date.")
+            else:
+                print(
+                    f"SCS update available: {result.current_version} -> {result.target_version}."
+                )
+                print("Run 'scs upgrade' to install.")
+            return 0
+        if not result.updated:
+            print(
+                f"SCS {result.current_version} is already installed. Use --force to reinstall."
+            )
+            return 0
+        action_line = (
+            f"Reinstalled SCS {result.target_version} at {result.launcher}."
+            if result.current_version == result.target_version
+            else f"Upgraded SCS from {result.current_version} to {result.target_version} at {result.launcher}."
+        )
+        print(action_line)
+        print(
+            "The shared daemon is stopped and starts lazily on the next command or MCP connection."
+        )
+        print("Reconnect open MCP clients to attach to the new version.")
         return 0
     if command == "uninstall":
         purge = values.get("purge") is True

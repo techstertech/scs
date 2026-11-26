@@ -19,6 +19,17 @@ def test_operational_commands_are_parseable() -> None:
     assert parser.parse_args(["doctor"]).command == "doctor"
     assert parser.parse_args(["status"]).command == "status"
     assert parser.parse_args(["version"]).command == "version"
+    default_upgrade = parser.parse_args(["upgrade"])
+    assert default_upgrade.command == "upgrade"
+    assert default_upgrade.version is None
+    assert default_upgrade.check is False
+    assert default_upgrade.force is False
+    pinned_upgrade = parser.parse_args(
+        ["upgrade", "--version", "0.8.0", "--check", "--force"]
+    )
+    assert pinned_upgrade.version == "0.8.0"
+    assert pinned_upgrade.check is True
+    assert pinned_upgrade.force is True
     assert parser.parse_args(["uninstall"]).purge is False
     assert parser.parse_args(["uninstall", "--purge"]).purge is True
     assert parser.parse_args(["index", "."]).command == "index"
@@ -80,6 +91,70 @@ def test_uninstall_command_reports_failure_without_claiming_success(
     output = capsys.readouterr()
     assert "shutdown failed" in output.err
     assert "uninstalled" not in output.out
+
+
+def test_upgrade_command_reports_check_noop_upgrade_and_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from scs.upgrade import UpgradeError, UpgradeResult
+
+    calls: list[tuple[str | None, bool, bool]] = []
+
+    def make_upgrade(result: UpgradeResult):
+        def fake_upgrade(
+            _settings: object,
+            *,
+            version: str | None = None,
+            check_only: bool = False,
+            force: bool = False,
+        ) -> UpgradeResult:
+            calls.append((version, check_only, force))
+            return result
+
+        return fake_upgrade
+
+    monkeypatch.setattr(
+        "scs.cli.upgrade",
+        make_upgrade(UpgradeResult("0.7.2", "0.8.0", False, True, None)),
+    )
+    assert main(["upgrade", "--check"]) == 0
+    assert "0.7.2 -> 0.8.0" in capsys.readouterr().out
+
+    monkeypatch.setattr(
+        "scs.cli.upgrade",
+        make_upgrade(UpgradeResult("0.8.0", "0.8.0", False, True, None)),
+    )
+    assert main(["upgrade", "--check"]) == 0
+    assert "up to date" in capsys.readouterr().out
+
+    monkeypatch.setattr(
+        "scs.cli.upgrade",
+        make_upgrade(UpgradeResult("0.8.0", "0.8.0", False, False, None)),
+    )
+    assert main(["upgrade"]) == 0
+    assert "already installed" in capsys.readouterr().out
+
+    monkeypatch.setattr(
+        "scs.cli.upgrade",
+        make_upgrade(
+            UpgradeResult("0.7.2", "0.8.0", True, False, Path("/Users/you/.local/bin/scs"))
+        ),
+    )
+    assert main(["upgrade", "--version", "0.8.0", "--force"]) == 0
+    upgraded_out = capsys.readouterr().out
+    assert "Upgraded SCS from 0.7.2 to 0.8.0" in upgraded_out
+    assert "Reconnect open MCP clients" in upgraded_out
+    assert calls[-1] == ("0.8.0", False, True)
+
+    def fail(*_args: object, **_kwargs: object) -> UpgradeResult:
+        raise UpgradeError("checksum mismatch")
+
+    monkeypatch.setattr("scs.cli.upgrade", fail)
+    assert main(["upgrade"]) == 1
+    failed = capsys.readouterr()
+    assert "checksum mismatch" in failed.err
+    assert "Upgraded" not in failed.out
 
 
 def test_mcp_command_runs_installed_stdio_bridge(

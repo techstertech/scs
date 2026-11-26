@@ -47,7 +47,8 @@ scs version
 On Linux, use `sha256sum -c SHA256SUMS --ignore-missing`. The installer
 verifies its wheel and constraints, installs without `sudo`, and uses a pinned,
 checksum-verified `uv` binary when necessary. Current macOS releases are not
-Apple-signed or notarized. See
+Apple-signed or notarized. Once installed, upgrade in place with `scs upgrade`
+(or `scs upgrade --check` / `scs upgrade --version X.Y.Z`). See
 [distribution and upgrade details](docs/github-releases-distribution.md).
 
 On Linux or older macOS versions, configure an embedding provider before

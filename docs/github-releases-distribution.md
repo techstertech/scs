@@ -115,9 +115,32 @@ expanded inside the TOML `command` value.
 
 ## Upgrade, rollback, and uninstall
 
-Running a newer versioned installer first requests cooperative cancellation of
-active indexing, waits for the daemon to release its root-scoped writer lock,
-and then performs an in-place `uv tool` replacement. If safe shutdown fails,
+Once installed, upgrade in place with:
+
+```bash
+scs upgrade
+```
+
+`scs upgrade` resolves the latest stable GitHub Release over HTTPS, downloads
+`SHA256SUMS`, the platform wheel, and the exact constraints file into a private
+temporary directory, and verifies SHA-256 checksums before touching the running
+daemon. It then acquires the lifecycle locks, stops the daemon with
+`--cancel-active`, runs `uv tool install --force` with exact constraints,
+verifies the installed `scs version`, and leaves the daemon stopped so the next
+command or MCP client starts it lazily.
+
+Useful options:
+
+```bash
+scs upgrade --check           # check for a newer release without installing
+scs upgrade --version 0.8.0   # install or roll back to a specific version
+scs upgrade --force           # reinstall the same version
+```
+
+Running a newer versioned installer performs the same safe replacement flow: it
+first requests cooperative cancellation of active indexing, waits for the daemon
+to release its root-scoped writer lock, and then performs an in-place `uv tool`
+replacement. If safe shutdown fails,
 the installer exits before changing the installed tool. Releases predating
 cooperative cancellation drain their current durable operation before the first
 upgrade to a supporting release.
