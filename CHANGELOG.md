@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0 - 2026-11-26
+
+- feat(cli): add `scs upgrade` (`--check`, `--version`, `--force`) for
+  checksum-verified, HTTPS-only in-place upgrades and rollbacks from GitHub
+  Releases with cooperative daemon shutdown under lifecycle locks
+- test(integration): disable host reranker configuration leakage in the
+  agentic query integration fixture
+
 ## 0.7.2 - 2026-11-26
 
 - fix(storage): deduplicate multi-relationship neighbor IDs in
